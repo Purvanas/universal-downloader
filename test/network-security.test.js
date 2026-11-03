@@ -51,7 +51,7 @@ test("epingle la connexion Node sur l'adresse DNS validee", async () => {
     requestOptions = options;
     const request = new EventEmitter();
     request.end = () => {
-      const response = Readable.from(["ok"]);
+      const response = Readable.from([Buffer.from("ok")]);
       response.statusCode = 200;
       response.statusMessage = "OK";
       response.headers = { "content-type": "text/plain" };
