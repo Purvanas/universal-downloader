@@ -199,6 +199,8 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
+const MAX_ACTIVE_PREVIEWS = 12;
+let activePreviews = 0;
 app.get("/api/preview/:token", async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
@@ -209,6 +211,8 @@ app.get("/api/preview/:token", async (req, res) => {
     return res.status(404).end();
   }
   target.expiresAt = Date.now() + PREVIEW_TTL_MS;
+  if (activePreviews >= MAX_ACTIVE_PREVIEWS) return res.status(429).end();
+  activePreviews += 1;
 
   try {
     const response = await safeFetch(target.url, {
@@ -229,6 +233,8 @@ app.get("/api/preview/:token", async (req, res) => {
   } catch {
     if (res.headersSent) return res.destroy();
     return res.status(422).end();
+  } finally {
+    activePreviews -= 1;
   }
 });
 setInterval(() => {
@@ -1477,7 +1483,10 @@ function logError(type, url, error, extra) {
   };
   errorLogs.push(entry);
   if (errorLogs.length > 500) errorLogs = errorLogs.slice(-500);
-  try { fs.writeFileSync(ERRORS_FILE, JSON.stringify(errorLogs, null, 2), { mode: 0o600 }); } catch {}
+  try {
+    fs.writeFileSync(ERRORS_FILE, JSON.stringify(errorLogs, null, 2), { mode: 0o600 });
+    fs.chmodSync(ERRORS_FILE, 0o600);
+  } catch {}
   console.log(`[ERROR-LOG] ${type} ${entry.url} — ${entry.error.substring(0, 100)}`);
 }
 
