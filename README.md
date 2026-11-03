@@ -1,72 +1,77 @@
 # Universal Downloader
 
-**Free online video downloader** — Download videos, audio, and photos from YouTube, Twitter/X, Instagram, TikTok, Facebook, Reddit, and 1000+ other sites.
+Universal Downloader rassemble dans une interface unique l’analyse, le téléchargement et l’extraction audio de médias pris en charge par `yt-dlp` et `gallery-dl`. Je l’utilise comme passerelle entre une URL, le format souhaité et, si besoin, mon convertisseur web.
 
-**[Use it now → dl.purvanas.fr](https://dl.purvanas.fr)**
+**Démo : [dl.purvanas.fr](https://dl.purvanas.fr)**
 
-## Features
+## Du lien au fichier
 
-- **YouTube Downloader** — MP4 up to 4K, age-restricted videos supported
-- **Twitter/X Downloader** — Save tweets with videos and images
-- **Instagram Downloader** — Reels, stories, posts in HD
-- **TikTok Downloader** — Videos without watermark
-- **Facebook Downloader** — Public videos in HD
-- **Reddit Downloader** — Videos and direct image links
-- **SoundCloud Downloader** — Music in MP3
-- **Audio extraction** — Convert any video to MP3, M4A, OPUS, WAV
-- **1000+ sites** supported via yt-dlp
+L’application commence par analyser l’URL. Elle privilégie `yt-dlp`, puis utilise des stratégies ciblées pour les publications contenant plusieurs médias, les fichiers directs et les pages HTML classiques. Un téléchargement devient ensuite un job suivi en temps réel par Server-Sent Events.
 
-## How it works
+- vidéo avec choix de qualité et fusion audio/vidéo ;
+- extraction audio en MP3, M4A, Opus, WAV, FLAC ou AAC ;
+- images et carrousels via `gallery-dl` ;
+- listes de médias téléchargées élément par élément ;
+- fichiers temporaires supprimés automatiquement ;
+- limite partagée d’analyses et de jobs concurrents, arrêt des processus trop longs ;
+- plafond de taille appliqué aux transferts directs et aux sorties d’extracteurs ;
+- transfert direct en flux, avec taille maximale et backpressure.
 
-1. Paste a URL
-2. Click "Analyze"
-3. Choose quality/format
-4. Download
+La compatibilité exacte dépend des extracteurs installés, du site source et de leurs évolutions. L’interface ne promet donc pas qu’une URL arbitraire fonctionnera toujours.
 
-No account, no installation, no tracking. Everything runs on a self-hosted server.
+## Architecture
 
-## Tech Stack
+```text
+URL ──> validation réseau ──> relais HTTP(S) local ──> yt-dlp / gallery-dl
+                                      │
+                                      └── job + progression SSE
+                                               │
+                                               └── fichier temporaire
+```
 
-- **Backend**: Node.js, Express
-- **Download engine**: [yt-dlp](https://github.com/yt-dlp/yt-dlp), [gallery-dl](https://github.com/mikf/gallery-dl)
-- **Frontend**: Vanilla HTML/CSS/JS (single file, no framework)
-- **Hosting**: Self-hosted on Ubuntu Server, behind Cloudflare Tunnel
+Le serveur Express garde l’état des jobs en mémoire. Les résultats sont écrits dans `downloads/`, disponibles quelques minutes, puis supprimés. Le frontend est écrit en HTML, CSS et JavaScript sans framework.
 
-## Self-hosting
+Les requêtes HTTP(S) des extracteurs passent par un relais lié à `127.0.0.1`. À chaque requête ou redirection, il refuse les identifiants dans l’URL, les ports autres que 80/443 et toute réponse DNS contenant une adresse privée ou réservée, puis ouvre la connexion vers l’adresse validée plutôt que de résoudre le nom une seconde fois. Les requêtes HTTP(S) effectuées directement par Node utilisent le même principe d’épinglage DNS.
+
+Les miniatures ne sont jamais chargées directement par le navigateur depuis un tiers. Le frontend reçoit un chemin local opaque ; le serveur récupère uniquement des images JPEG, PNG, WebP ou GIF, avec un timeout, une limite de 3 Mio et la même validation réseau.
+
+Le scan Chromium a été retiré : le service n’exécute pas le JavaScript des pages tierces. Le relais protège les chemins HTTP(S) qui le prennent en charge ; il ne constitue ni une sandbox de processus ni une politique réseau globale pour la machine. Une instance publique doit donc conserver un filtrage sortant et des limites système indépendants.
+
+## Installation
+
+Prérequis :
+
+- **Node.js 22 ou 24** ;
+- [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) dans le `PATH` ;
+- `ffmpeg` pour les fusions et extractions audio ;
+- [`gallery-dl`](https://github.com/mikf/gallery-dl) dans le `PATH` pour les images et carrousels.
 
 ```bash
 git clone https://github.com/Purvanas/universal-downloader.git
 cd universal-downloader
-npm install
-# Make sure yt-dlp and ffmpeg are installed on your system
-node server.js
+YOUTUBE_DL_SKIP_DOWNLOAD=true npm ci
+cp .env.example .env
+node --env-file=.env server.js
 ```
 
-Runs on port 3600 by default.
+La variable d’installation évite le téléchargement automatique d’un binaire pendant `npm ci`. Indiquez ensuite le binaire maintenu par l’hôte avec `YTDLP_BIN` ; cela rend l’installation reproductible et évite de dépendre d’un téléchargement GitHub au postinstall.
 
-## Supported platforms
+Le serveur écoute par défaut sur `127.0.0.1:3600`. Placez-le derrière un reverse proxy HTTPS. [.env.example](.env.example) documente le répertoire temporaire, les chemins d’outils, la limite de taille, la concurrence et l’origine autorisée pour le convertisseur.
 
-| Platform | Video | Audio | Images |
-|----------|-------|-------|--------|
-| YouTube | 4K | MP3/M4A/WAV | Thumbnails |
-| Twitter/X | HD | - | Photos |
-| Instagram | HD | - | Photos |
-| TikTok | HD | MP3 | - |
-| Facebook | HD | - | - |
-| Reddit | HD | - | Direct links |
-| SoundCloud | - | MP3 | - |
-| Twitch | Clips/VODs | - | - |
-| Vimeo | HD | MP3 | - |
-| Dailymotion | HD | MP3 | - |
-| Pinterest | - | - | HD |
-| + 1000 more | via yt-dlp | via yt-dlp | via gallery-dl |
+Un fichier de cookies Netscape peut être indiqué par `COOKIE_FILE` pour les sources qui exigent une session. Il reste local, est ignoré par Git et ne doit jamais être partagé. Sans fichier, l’application fonctionne avec les contenus publics accessibles aux extracteurs.
 
-## License
+`ERRORS_TOKEN` protège le journal technique. Sans valeur, la route d’administration reste invisible.
 
-MIT
+## Sécurité et périmètre
 
-## Links
+L’application télécharge du contenu depuis Internet et lance des outils externes. Le relais ne remplace pas une sandbox du système d’exploitation et ne garantit pas qu’un autre processus de la machine ne puisse accéder au réseau. Pour une instance publique, exécutez-la avec un utilisateur non privilégié, un système de fichiers borné, des limites CPU/mémoire/processus et un filtrage réseau sortant. Mettez régulièrement à jour `yt-dlp` et `gallery-dl` : les sites changent souvent leur lecteur et leurs protections.
 
-- **Live demo**: [dl.purvanas.fr](https://dl.purvanas.fr)
-- **Author**: [Purvanas](https://purvanas.fr)
-- **Other tools**: [QR Generator](https://qr.purvanas.fr) · [FileDrop](https://drop.purvanas.fr) · [Converter](https://convert.purvanas.fr) · [Photo Editor](https://edit.purvanas.fr)
+Utilisez l’outil uniquement pour des contenus que vous êtes autorisé à récupérer et dans le respect des règles du service source. Le projet ne contourne pas les DRM.
+
+## Vérification
+
+La CI exécute les contrôles et tests sur Node.js 22 et 24 sans télécharger `yt-dlp`. Les tests réseau utilisent des doubles locaux : ils vérifient les plages privées et NAT64, les ports, les réponses DNS multiples, l’épinglage de l’adresse, le refus d’une redirection interne et les limites des aperçus sans contacter de site réel.
+
+## Licence
+
+Le code de ce dépôt est distribué sous licence [MIT](LICENSE). `yt-dlp`, `gallery-dl`, FFmpeg et les autres dépendances conservent leurs propres licences.
