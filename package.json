@@ -13,7 +13,7 @@
   "engines": { "node": ">=22" },
   "dependencies": {
     "cheerio": "^1.2.0",
-    "express": "^5.2.1",
-    "youtube-dl-exec": "^3.0.12"
+    "express": "^5.3.0",
+    "youtube-dl-exec": "^3.1.19"
   }
 }
