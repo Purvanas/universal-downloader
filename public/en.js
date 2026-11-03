@@ -66,6 +66,6 @@ i18n.init({ en: {
 '.bottom-btn-kofi': '&#9749; Support',
 '.bug-modal h3': '&#128027; Report an issue',
 '#bug-description': { placeholder: "Describe what's not working..." },
-'.bug-modal-info': 'Your report will automatically include an anonymous activity log to help us reproduce the issue.',
+'.bug-modal-info': 'The report includes recent actions, browser information and the IP address. URLs are removed from the activity log.',
 '.bug-modal button': 'Send report',
 }});
