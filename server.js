@@ -5,15 +5,11 @@ const crypto = require("crypto");
 const { spawn } = require("child_process");
 const { Readable, Transform } = require("stream");
 const { pipeline } = require("stream/promises");
-const youtubedl = require("youtube-dl-exec");
+const youtubeDlExec = require("youtube-dl-exec");
 const cheerio = require("cheerio");
 const { isPrivateIP, safeFetch, validateRemoteUrl } = require("./lib/network-security");
-// Puppeteer loaded lazily — expensive at startup
-let puppeteerLib = null;
-function getPuppeteer() {
-  if (!puppeteerLib) puppeteerLib = require("puppeteer");
-  return puppeteerLib;
-}
+const { MAX_PREVIEW_BYTES, createPreviewByteLimit, previewContentType, previewLengthAllowed } = require("./lib/preview");
+const { createSafeProxy } = require("./lib/safe-proxy");
 
 const app = express();
 function positiveInteger(value, fallback) {
@@ -24,12 +20,49 @@ const PORT = positiveInteger(process.env.PORT, 3600);
 const HOST = process.env.HOST || "127.0.0.1";
 const DOWNLOADS_DIR = process.env.DOWNLOADS_DIR ? path.resolve(process.env.DOWNLOADS_DIR) : path.join(__dirname, "downloads");
 const GALLERY_DL = process.env.GALLERY_DL || "gallery-dl";
+const YTDLP_BIN = process.env.YTDLP_BIN || "";
+const youtubedl = YTDLP_BIN ? youtubeDlExec.create(YTDLP_BIN) : youtubeDlExec;
 const COOKIE_FILE = process.env.COOKIE_FILE ? path.resolve(process.env.COOKIE_FILE) : path.join(__dirname, "cookies.txt");
 const CONVERTER_ORIGIN = process.env.CONVERTER_ORIGIN || "https://convert.purvanas.fr";
 const ERRORS_TOKEN = process.env.ERRORS_TOKEN || "";
 const MAX_ACTIVE_JOBS = positiveInteger(process.env.MAX_ACTIVE_JOBS, 3);
 const MAX_DOWNLOAD_BYTES = positiveInteger(process.env.MAX_DOWNLOAD_BYTES, 500 * 1024 * 1024);
-const ENABLE_DEEP_SCAN = process.env.ENABLE_DEEP_SCAN === "true";
+const networkRelay = createSafeProxy();
+let relayUrlPromise = null;
+
+function getRelayUrl() {
+  if (!relayUrlPromise) relayUrlPromise = networkRelay.listen();
+  return relayUrlPromise;
+}
+
+function extractorSpawnOptions(proxyUrl) {
+  return {
+    env: {
+      ...process.env,
+      HTTP_PROXY: proxyUrl,
+      HTTPS_PROXY: proxyUrl,
+      http_proxy: proxyUrl,
+      https_proxy: proxyUrl,
+      FTP_PROXY: proxyUrl,
+      ftp_proxy: proxyUrl,
+      ALL_PROXY: proxyUrl,
+      all_proxy: proxyUrl,
+      NO_PROXY: "",
+      no_proxy: "",
+    },
+  };
+}
+
+function secureYtDlpOptions(options, proxyUrl) {
+  return {
+    ...options,
+    ignoreConfig: true,
+    proxy: proxyUrl,
+    // Keep every media transfer inside yt-dlp's proxy-aware HTTP stack. FFmpeg
+    // remains available for local merge/transcode post-processing only.
+    downloader: "native",
+  };
+}
 
 if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 // ===== INPUT VALIDATION =====
@@ -37,6 +70,9 @@ const ALLOWED_AUDIO_FORMATS = new Set(['mp3', 'm4a', 'opus', 'wav', 'flac', 'aac
 const ALLOWED_VIDEO_QUALITIES = new Set(['best', '144', '240', '360', '480', '720', '1080', '1440', '2160', '4320']);
 const ALLOWED_FORMATS = new Set(['video', 'audio', 'image', 'direct']);
 const MAX_URL_LENGTH = 2048;
+const PREVIEW_TTL_MS = 15 * 60 * 1000;
+const MAX_PREVIEW_TARGETS = 1_000;
+const previewTargets = new Map();
 
 function sanitizeUrl(raw) {
   if (typeof raw !== 'string') return null;
@@ -47,8 +83,46 @@ function sanitizeUrl(raw) {
   return url;
 }
 
+function safeDecodeComponent(value, fallback = "media") {
+  const raw = typeof value === "string" && value ? value : fallback;
+  try { return decodeURIComponent(raw); } catch { return raw; }
+}
+
+function previewPath(rawUrl) {
+  if (typeof rawUrl !== "string") return null;
+  if (/^\/api\/preview\/[a-f0-9]{64}$/.test(rawUrl)) return rawUrl;
+  const sanitized = sanitizeUrl(rawUrl);
+  if (!sanitized) return null;
+  let parsed;
+  try { parsed = new URL(sanitized); } catch { return null; }
+  if (parsed.username || parsed.password) return null;
+  const port = Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80));
+  if (port !== 80 && port !== 443) return null;
+
+  const now = Date.now();
+  for (const [token, target] of previewTargets) {
+    if (target.expiresAt <= now) previewTargets.delete(token);
+  }
+  const token = crypto.createHash("sha256").update(parsed.href).digest("hex");
+  previewTargets.delete(token);
+  previewTargets.set(token, { url: parsed.href, expiresAt: now + PREVIEW_TTL_MS });
+  while (previewTargets.size > MAX_PREVIEW_TARGETS) previewTargets.delete(previewTargets.keys().next().value);
+  return `/api/preview/${token}`;
+}
+
 function shortText(value, maxLength = 500) {
   return typeof value === "string" ? value.substring(0, maxLength) : "";
+}
+
+function sanitizeActivityLog(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(-30).map(entry => {
+    const action = shortText(entry?.a, 40).replace(/[^a-z0-9-]/gi, "");
+    const detail = ["analyze", "scan"].includes(action)
+      ? ""
+      : shortText(entry?.d, 200).replace(/(?:https?:\/\/|www\.)\S+/gi, "[url]");
+    return { t: shortText(entry?.t, 8), a: action, d: detail };
+  });
 }
 
 function loggableUrl(value) {
@@ -60,7 +134,7 @@ function loggableUrl(value) {
     parsed.hash = "";
     return parsed.href.substring(0, MAX_URL_LENGTH);
   } catch {
-    return shortText(value, 200) || "unknown";
+    return "invalid-url";
   }
 }
 
@@ -103,18 +177,64 @@ app.use(express.json({ limit: "100kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 const requestWindows = new Map();
+const previewRequestWindows = new Map();
 app.use("/api", (req, res, next) => {
+  // Preview tokens can fan out for a playlist; their creation is already
+  // bounded by the rate-limited analysis routes and the in-memory registry.
   const now = Date.now();
   const key = req.ip;
+  if (req.path.startsWith("/preview/")) {
+    const currentPreview = previewRequestWindows.get(key);
+    const previewEntry = !currentPreview || now - currentPreview.startedAt > 15 * 60 * 1000
+      ? { startedAt: now, count: 1 }
+      : { ...currentPreview, count: currentPreview.count + 1 };
+    previewRequestWindows.set(key, previewEntry);
+    if (previewEntry.count > 600) return res.status(429).end();
+    return next();
+  }
   const current = requestWindows.get(key);
   const entry = !current || now - current.startedAt > 15 * 60 * 1000 ? { startedAt: now, count: 1 } : { ...current, count: current.count + 1 };
   requestWindows.set(key, entry);
   if (entry.count > 180) return res.status(429).json({ error: "Trop de requetes, reessayez plus tard" });
   next();
 });
+
+app.get("/api/preview/:token", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+  const token = typeof req.params.token === "string" ? req.params.token : "";
+  const target = /^[a-f0-9]{64}$/.test(token) ? previewTargets.get(token) : null;
+  if (!target || target.expiresAt <= Date.now()) {
+    if (target) previewTargets.delete(token);
+    return res.status(404).end();
+  }
+  target.expiresAt = Date.now() + PREVIEW_TTL_MS;
+
+  try {
+    const response = await safeFetch(target.url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; UniversalDownloaderPreview/1.0)",
+        Accept: "image/jpeg,image/png,image/webp,image/gif",
+        "Accept-Encoding": "identity",
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+    const contentType = previewContentType(response.headers.get("content-type"));
+    if (!response.ok || !response.body || !contentType || !previewLengthAllowed(response.headers.get("content-length"))) {
+      try { await response.body?.cancel(); } catch {}
+      return res.status(415).end();
+    }
+    res.setHeader("Content-Type", contentType);
+    await pipeline(Readable.fromWeb(response.body), createPreviewByteLimit(MAX_PREVIEW_BYTES), res);
+  } catch {
+    if (res.headersSent) return res.destroy();
+    return res.status(422).end();
+  }
+});
 setInterval(() => {
   const cutoff = Date.now() - 15 * 60 * 1000;
   for (const [key, value] of requestWindows) if (value.startedAt < cutoff) requestWindows.delete(key);
+  for (const [key, value] of previewRequestWindows) if (value.startedAt < cutoff) previewRequestWindows.delete(key);
 }, 15 * 60 * 1000).unref();
 
 // ===== IN-MEMORY STATE =====
@@ -153,13 +273,10 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-app.get("/api/capabilities", (req, res) => {
-  res.json({ deepScan: ENABLE_DEEP_SCAN });
-});
-
-function runYtDlpJson(url, options, { timeoutMs = 45_000, maxOutputBytes = 10 * 1024 * 1024 } = {}) {
+async function runYtDlpJson(url, options, { timeoutMs = 45_000, maxOutputBytes = 10 * 1024 * 1024 } = {}) {
+  const proxyUrl = await getRelayUrl();
   return new Promise((resolve, reject) => {
-    const proc = youtubedl.exec(url, options);
+    const proc = youtubedl.exec(url, secureYtDlpOptions(options, proxyUrl), extractorSpawnOptions(proxyUrl));
     let stdout = "";
     let stderr = "";
     let failure = null;
@@ -181,7 +298,7 @@ function runYtDlpJson(url, options, { timeoutMs = 45_000, maxOutputBytes = 10 * 
       stdout += chunk.toString();
       if (Buffer.byteLength(stdout) > maxOutputBytes && !failure) {
         failure = new Error("Reponse de l'extracteur trop volumineuse");
-        try { proc.kill("SIGTERM"); } catch {}
+        terminateProcess(proc);
       }
     });
     proc.stderr.on("data", chunk => { stderr = (stderr + chunk.toString()).slice(-16_384); });
@@ -246,7 +363,7 @@ app.post("/api/analyze", async (req, res) => {
         return {
           index: idx + 1, // 1-based for yt-dlp --playlist-items
           title: entry.title || entry.fulltitle || `Media ${idx + 1}`,
-          thumbnail: entry.thumbnail || (isImg ? (entry.url || null) : null),
+          thumbnail: previewPath(entry.thumbnail || (isImg ? (entry.url || null) : null)),
           duration: isImg ? null : (entry.duration || null),
           type: isImg ? "image" : "video",
           hasVideo: hasV,
@@ -288,7 +405,7 @@ app.post("/api/analyze", async (req, res) => {
 
     return res.json({
       title: info.title || info.fulltitle || "Sans titre",
-      thumbnail: info.thumbnail || null,
+      thumbnail: previewPath(info.thumbnail),
       duration: isImageContent ? null : (info.duration || null),
       uploader: info.uploader || info.channel || null,
       type: isImageContent ? "image" : "video",
@@ -314,7 +431,7 @@ app.post("/api/analyze", async (req, res) => {
         // Single item → return single-media response with directUrls so download uses direct fetch
         return res.json({
           title: gdlInfo.title || "Media",
-          thumbnail: gdlInfo.url || null,
+          thumbnail: previewPath(gdlInfo.url),
           duration: null,
           uploader: gdlInfo.uploader || null,
           type: gdlInfo.type || "image",
@@ -342,7 +459,7 @@ app.post("/api/analyze", async (req, res) => {
           const only = scanInfo.items[0];
           return res.json({
             title: scanInfo.title || only.title,
-            thumbnail: only.thumbnail,
+            thumbnail: previewPath(only.thumbnail),
             duration: null,
             uploader: null,
             type: only.type,
@@ -358,30 +475,6 @@ app.post("/api/analyze", async (req, res) => {
       }
     } catch {}
 
-    // ===== LAST RESORT: deep scan with headless browser =====
-    // Handles JS-rendered sites. ~15-20s but worth it for unknown sites.
-    if (ENABLE_DEEP_SCAN) try {
-      const deepInfo = await deepScanPage(url);
-      if (deepInfo && deepInfo.items && deepInfo.items.length > 0) {
-        if (deepInfo.items.length === 1) {
-          const only = deepInfo.items[0];
-          return res.json({
-            title: deepInfo.title || only.title,
-            thumbnail: only.thumbnail,
-            duration: null,
-            uploader: null,
-            type: only.type,
-            source: detectSource(url, "") || "other",
-            qualities: [],
-            hasVideo: only.type === "video",
-            hasAudio: only.type === "video" || only.type === "audio",
-            directUrls: only.directUrls,
-          });
-        }
-        return res.json(deepInfo);
-      }
-    } catch {}
-
     // All methods exhausted
     const detail = ytErr.stderr ? ytErr.stderr.substring(0, 500) : ytErr.message;
     logError("analyze", url, detail);
@@ -393,7 +486,7 @@ app.post("/api/analyze", async (req, res) => {
 
 // ===== SCAN PAGE =====
 // Fetch a page and extract all downloadable media (images, videos, audio).
-// Works with static HTML — for JS-rendered pages, the /scan-deep fallback is needed.
+// Works with static HTML; third-party JavaScript is never executed by this service.
 app.post("/api/scan", async (req, res) => {
   const url = sanitizeUrl(req.body?.url);
   if (!url) return res.status(400).json({ error: "URL invalide" });
@@ -596,8 +689,8 @@ async function scanPage(url) {
     if (info.type === "other") continue;
     allItems.push({
       index: ++idx,
-      title: decodeURIComponent(new URL(u).pathname.split("/").pop() || "media").substring(0, 80) || `Media ${idx}`,
-      thumbnail: info.type === "image" ? u : (info.thumbnail || null),
+      title: safeDecodeComponent(new URL(u).pathname.split("/").pop()).substring(0, 80) || `Media ${idx}`,
+      thumbnail: previewPath(info.type === "image" ? u : info.thumbnail),
       duration: null,
       type: info.type,
       hasVideo: info.type === "video",
@@ -630,225 +723,6 @@ async function scanPage(url) {
     items,
     scannedUrl: url,
   };
-}
-
-// ===== DEEP SCAN (Puppeteer) =====
-// Launches a headless Chrome, intercepts all network requests, captures media URLs.
-// Used as fallback when /api/scan finds nothing (JS-rendered pages, blob: sources).
-let _browser = null;
-let _browserIdleTimer = null;
-const BROWSER_IDLE_MS = 5 * 60 * 1000; // close browser after 5min idle
-const DEEP_SCAN_TIMEOUT_MS = 20000;
-
-async function getBrowser() {
-  if (_browser && _browser.isConnected()) {
-    resetBrowserIdleTimer();
-    return _browser;
-  }
-  const puppeteer = getPuppeteer();
-  _browser = await puppeteer.launch({
-    headless: "new",
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--no-zygote",
-      "--disable-background-networking",
-      "--disable-sync",
-      "--disable-default-apps",
-      "--disable-extensions",
-      "--mute-audio",
-    ],
-  });
-  resetBrowserIdleTimer();
-  return _browser;
-}
-
-function resetBrowserIdleTimer() {
-  if (_browserIdleTimer) clearTimeout(_browserIdleTimer);
-  _browserIdleTimer = setTimeout(async () => {
-    if (_browser) {
-      try { await _browser.close(); } catch {}
-      _browser = null;
-    }
-  }, BROWSER_IDLE_MS);
-}
-
-app.post("/api/scan-deep", async (req, res) => {
-  if (!ENABLE_DEEP_SCAN) return res.status(404).json({ error: "Scan profond desactive" });
-  const url = sanitizeUrl(req.body?.url);
-  if (!url) return res.status(400).json({ error: "URL invalide" });
-
-  const ssrfCheck = await validateRemoteUrl(url);
-  if (!ssrfCheck.safe) return res.status(403).json({ error: ssrfCheck.reason });
-  if (activeWorkCount() >= MAX_ACTIVE_JOBS) {
-    return res.status(429).json({ error: "Le serveur traite deja trop de demandes" });
-  }
-  activeAnalyses++;
-
-  try {
-    const result = await deepScanPage(url);
-    return res.json(result);
-  } catch (err) {
-    logError("scan-deep", url, err.message || String(err));
-    return res.status(422).json({ error: "Echec du scan profond: " + (err.message || "erreur inconnue").substring(0, 150) });
-  } finally {
-    activeAnalyses--;
-  }
-});
-
-async function deepScanPage(url) {
-  const browser = await getBrowser();
-  const context = await browser.createBrowserContext({}); // isolated context per scan
-  const page = await context.newPage();
-
-  // Collect media URLs via network interception
-  const foundUrls = new Map();
-  const MEDIA_EXT = /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp|mp4|webm|mov|m4v|mp3|wav|m4a|ogg|flac|aac|opus|m3u8|mpd|ts)(\?|$|#)/i;
-  const MEDIA_MIME = /^(image|video|audio)\//;
-
-  function classify(u, contentType) {
-    const ct = (contentType || "").toLowerCase();
-    if (ct.startsWith("video/") || /\.(mp4|webm|mov|m4v|m3u8|mpd|ts)(\?|$|#)/i.test(u)) return "video";
-    if (ct.startsWith("audio/") || /\.(mp3|wav|m4a|ogg|flac|aac|opus)(\?|$|#)/i.test(u)) return "audio";
-    if (ct.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp)(\?|$|#)/i.test(u)) return "image";
-    return null;
-  }
-
-  function add(u, type) {
-    if (!u || u.startsWith("data:") || u.startsWith("blob:")) return;
-    if (foundUrls.size >= 500) return;
-    if (foundUrls.has(u)) return;
-    foundUrls.set(u, { type });
-  }
-
-  try {
-    await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-    await page.setViewport({ width: 1280, height: 800 });
-    await page.setRequestInterception(true);
-    page.on("request", async request => {
-      try {
-        const requestUrl = request.url();
-        if (!/^https?:/i.test(requestUrl)) return request.continue();
-        const validation = await validateRemoteUrl(requestUrl);
-        if (!validation.safe) return request.abort("blockedbyclient");
-        const type = classify(requestUrl, null);
-        if (type && MEDIA_EXT.test(requestUrl)) add(requestUrl, type);
-        return request.continue();
-      } catch {
-        try { return request.abort("blockedbyclient"); } catch {}
-      }
-    });
-
-    // Intercept responses — this catches blob URLs because the blob is CREATED from a real URL first
-    page.on("response", (resp) => {
-      try {
-        const rurl = resp.url();
-        const ct = resp.headers()["content-type"] || "";
-        const type = classify(rurl, ct);
-        if (type && MEDIA_MIME.test(ct)) add(rurl, type);
-        else if (type && MEDIA_EXT.test(rurl)) add(rurl, type);
-      } catch {}
-    });
-
-    // Navigate with timeout
-    await page.goto(url, { waitUntil: "networkidle2", timeout: DEEP_SCAN_TIMEOUT_MS }).catch(err => {
-      // networkidle may timeout on pages with long-polling — fall back to domcontentloaded
-      if (!err.message.includes("timeout")) throw err;
-    });
-
-    // Scroll to trigger lazy-loaded media
-    await page.evaluate(() => {
-      return new Promise(resolve => {
-        let total = 0;
-        const step = () => {
-          window.scrollBy(0, 300);
-          total += 300;
-          if (total < document.body.scrollHeight && total < 10000) {
-            setTimeout(step, 80);
-          } else {
-            resolve();
-          }
-        };
-        step();
-      });
-    }).catch(() => {});
-
-    // Wait a bit more for straggler resources
-    await new Promise(r => setTimeout(r, 1500));
-
-    // Also pull current DOM via cheerio for <img src> etc.
-    const html = await page.content();
-    const pageTitle = (await page.title() || "").substring(0, 200);
-    const finalUrl = page.url();
-
-    try {
-      const $ = cheerio.load(html);
-      const base = new URL(finalUrl);
-      const resolveUrl = (u) => {
-        if (!u) return null;
-        u = u.trim();
-        if (!u || u.startsWith("data:") || u.startsWith("blob:") || u.startsWith("javascript:")) return null;
-        try { return new URL(u, base).href; } catch { return null; }
-      };
-      $("img[src], img[data-src]").each(function() {
-        const src = $(this).attr("src") || $(this).attr("data-src");
-        const resolved = resolveUrl(src);
-        if (resolved) {
-          const type = classify(resolved, null);
-          if (type) add(resolved, type);
-        }
-      });
-      $("video[src], video source[src]").each(function() {
-        const src = $(this).attr("src");
-        const resolved = resolveUrl(src);
-        if (resolved) add(resolved, "video");
-      });
-    } catch {}
-
-    // Build items
-    const MAX_RESULTS = 200;
-    const allItems = [];
-    let idx = 0;
-    for (const [u, info] of foundUrls) {
-      if (/favicon/i.test(u) || /logo/i.test(u)) continue; // basic noise filter
-      allItems.push({
-        index: ++idx,
-        title: decodeURIComponent(new URL(u).pathname.split("/").pop() || "media").substring(0, 80) || `Media ${idx}`,
-        thumbnail: info.type === "image" ? u : null,
-        duration: null,
-        type: info.type,
-        hasVideo: info.type === "video",
-        hasAudio: info.type === "video" || info.type === "audio",
-        qualities: [],
-        directUrls: { best: u },
-      });
-    }
-    const typeOrder = { video: 0, audio: 1, image: 2 };
-    allItems.sort((a, b) => (typeOrder[a.type] ?? 3) - (typeOrder[b.type] ?? 3));
-    const truncated = allItems.length > MAX_RESULTS;
-    const items = allItems.slice(0, MAX_RESULTS).map((it, i) => ({ ...it, index: i + 1 }));
-
-    if (items.length === 0) throw new Error("Aucun media detecte (meme apres execution JS)");
-
-    return {
-      type: "playlist",
-      source: "scan-deep",
-      title: pageTitle || new URL(finalUrl).hostname,
-      uploader: null,
-      count: items.length,
-      totalFound: allItems.length,
-      truncated,
-      items,
-      scannedUrl: finalUrl,
-      deep: true,
-    };
-  } finally {
-    try { await page.close(); } catch {}
-    try { await context.close(); } catch {}
-    resetBrowserIdleTimer();
-  }
 }
 
 // ===== START DOWNLOAD =====
@@ -895,14 +769,14 @@ app.post("/api/download", async (req, res) => {
 
     try {
       if (format === "image") {
-        startImageDownload(id, url, playlistIdx);
+        await startImageDownload(id, url, playlistIdx);
       } else if (format === "audio") {
-        startAudioDownload(id, url, audioFormat || "mp3", playlistIdx);
+        await startAudioDownload(id, url, audioFormat || "mp3", playlistIdx);
       } else if (format === "direct") {
         // Direct MP4 URL (e.g. from fxtwitter)
         startDirectDownload(id, url, body.directUrl);
       } else {
-        startVideoDownload(id, url, quality || "best", playlistIdx);
+        await startVideoDownload(id, url, quality || "best", playlistIdx);
       }
     } catch (error) {
       cleanupJob(id);
@@ -981,7 +855,8 @@ function cleanupJob(id) {
 
 // ===== DOWNLOAD FUNCTIONS =====
 
-function startVideoDownload(id, url, quality, playlistIdx) {
+async function startVideoDownload(id, url, quality, playlistIdx) {
+  const proxyUrl = await getRelayUrl();
   const outputTemplate = path.join(DOWNLOADS_DIR, `${id}.%(ext)s`);
   const formatStr = quality === "best"
     ? "bv+ba/b"
@@ -1000,12 +875,13 @@ function startVideoDownload(id, url, quality, playlistIdx) {
     maxFilesize: MAX_DOWNLOAD_BYTES,
   };
   if (playlistIdx) opts.playlistItems = String(playlistIdx);
-  const proc = youtubedl.exec(url, opts);
+  const proc = youtubedl.exec(url, secureYtDlpOptions(opts, proxyUrl), extractorSpawnOptions(proxyUrl));
   jobs.get(id).process = proc;
   trackProgress(id, proc);
 }
 
-function startAudioDownload(id, url, audioFormat, playlistIdx) {
+async function startAudioDownload(id, url, audioFormat, playlistIdx) {
+  const proxyUrl = await getRelayUrl();
   const outputTemplate = path.join(DOWNLOADS_DIR, `${id}.%(ext)s`);
 
   const opts = {
@@ -1022,20 +898,21 @@ function startAudioDownload(id, url, audioFormat, playlistIdx) {
     maxFilesize: MAX_DOWNLOAD_BYTES,
   };
   if (playlistIdx) opts.playlistItems = String(playlistIdx);
-  const proc = youtubedl.exec(url, opts);
+  const proc = youtubedl.exec(url, secureYtDlpOptions(opts, proxyUrl), extractorSpawnOptions(proxyUrl));
   jobs.get(id).process = proc;
   trackProgress(id, proc);
 }
 
-function startImageDownload(id, url, playlistIdx) {
+async function startImageDownload(id, url, playlistIdx) {
   const job = jobs.get(id);
   job.status = "downloading";
+  const proxyUrl = await getRelayUrl();
 
   // When a playlist index is specified, try yt-dlp first (it handles Instagram carousels natively)
   // Fall back to gallery-dl for single images.
   if (playlistIdx) {
     const outputTemplate = path.join(DOWNLOADS_DIR, `${id}.%(ext)s`);
-    const proc = youtubedl.exec(url, {
+    const proc = youtubedl.exec(url, secureYtDlpOptions({
       output: outputTemplate,
       ...cookieOptions(),
       jsRuntimes: "node",
@@ -1044,13 +921,15 @@ function startImageDownload(id, url, playlistIdx) {
       socketTimeout: 30,
       retries: 3,
       maxFilesize: MAX_DOWNLOAD_BYTES,
-    });
+    }, proxyUrl), extractorSpawnOptions(proxyUrl));
     job.process = proc;
     trackProgress(id, proc);
     return;
   }
 
   const galleryArgs = [
+    "--config-ignore",
+    "--proxy", proxyUrl,
     "--dest", DOWNLOADS_DIR,
     "--filename", `${id}.{extension}`,
     "--option", "directory=[]",  // Prevent gallery-dl from creating extractor sub-dirs
@@ -1059,7 +938,7 @@ function startImageDownload(id, url, playlistIdx) {
     url,
   ];
   if (fs.existsSync(COOKIE_FILE)) galleryArgs.unshift("--cookies", COOKIE_FILE);
-  const proc = spawn(GALLERY_DL, galleryArgs);
+  const proc = spawn(GALLERY_DL, galleryArgs, extractorSpawnOptions(proxyUrl));
   job.process = proc;
 
   let stderr = "";
@@ -1295,7 +1174,7 @@ function buildFxVideoItem(video, tweet) {
   directUrls["best"] = video.url;
   return {
     title: tweet.text ? tweet.text.substring(0, 100) : "Twitter video",
-    thumbnail: video.thumbnail_url || null,
+    thumbnail: previewPath(video.thumbnail_url),
     duration: video.duration || null,
     uploader: tweet.author ? tweet.author.name : null,
     type: "video",
@@ -1310,7 +1189,7 @@ function buildFxVideoItem(video, tweet) {
 function buildFxImageItem(image, tweet) {
   return {
     title: tweet.text ? tweet.text.substring(0, 100) : "Twitter image",
-    thumbnail: image.url || null,
+    thumbnail: previewPath(image.url),
     duration: null,
     uploader: tweet.author ? tweet.author.name : null,
     type: "image",
@@ -1326,11 +1205,11 @@ async function fxtwitterInfo(url) {
   const tweetId = extractTweetId(url);
   if (!tweetId) return null;
 
-  const resp = await fetch(`https://api.fxtwitter.com/i/status/${tweetId}`, {
+  const resp = await safeFetch(`https://api.fxtwitter.com/i/status/${tweetId}`, {
     signal: AbortSignal.timeout(10000),
   });
   if (!resp.ok) return null;
-  const data = await resp.json();
+  const data = JSON.parse(await readTextLimited(resp, 5 * 1024 * 1024));
   if (!data.tweet) return null;
 
   const tweet = data.tweet;
@@ -1383,8 +1262,7 @@ function startDirectDownload(id, originalUrl, directUrl) {
 
   // Extract extension from the URL path (not query string) to avoid false matches
   const urlPathExt = new URL(directUrl).pathname.match(/\.(mp4|webm|jpg|jpeg|png|webp|gif)$/i)?.[1] || "";
-  const fileExt = urlPathExt.toLowerCase().replace("jpeg", "jpg") || "mp4";
-  const filePath = path.join(DOWNLOADS_DIR, `${id}.${fileExt}`);
+  let filePath = null;
 
   (async () => {
     const controller = new AbortController();
@@ -1401,6 +1279,14 @@ function startDirectDownload(id, originalUrl, directUrl) {
       if (!response.ok) {
         throw new Error(`HTTP ${response.status} ${response.statusText}`);
       }
+
+      const contentType = (response.headers.get("content-type") || "").split(";")[0].toLowerCase();
+      const contentTypeExtensions = {
+        "video/mp4": "mp4", "video/webm": "webm",
+        "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif",
+      };
+      const fileExt = urlPathExt.toLowerCase().replace("jpeg", "jpg") || contentTypeExtensions[contentType] || "mp4";
+      filePath = path.join(DOWNLOADS_DIR, `${id}.${fileExt}`);
 
       const totalBytes = parseInt(response.headers.get("content-length") || "0", 10);
       if (totalBytes > MAX_DOWNLOAD_BYTES) throw new Error("Fichier trop volumineux");
@@ -1424,7 +1310,9 @@ function startDirectDownload(id, originalUrl, directUrl) {
     } catch (err) {
       job.status = "error";
       job.error = err.message;
-      try { fs.unlinkSync(filePath); } catch {}
+      if (filePath) {
+        try { fs.unlinkSync(filePath); } catch {}
+      }
       logError("direct-dl", originalUrl, job.error);
     } finally {
       job.abortController = null;
@@ -1435,14 +1323,17 @@ function startDirectDownload(id, originalUrl, directUrl) {
 // ===== GALLERY-DL INFO =====
 // Returns either a single-item info (backward-compatible) or a playlist object.
 // Uses authenticated cookies for Instagram/Twitter etc.
-function galleryDlInfo(url) {
+async function galleryDlInfo(url) {
+  const proxyUrl = await getRelayUrl();
   return new Promise((resolve, reject) => {
     const args = [
+      "--config-ignore",
+      "--proxy", proxyUrl,
       "--dump-json",
       url,
     ];
     if (fs.existsSync(COOKIE_FILE)) args.unshift("--cookies", COOKIE_FILE);
-    const proc = spawn(GALLERY_DL, args);
+    const proc = spawn(GALLERY_DL, args, extractorSpawnOptions(proxyUrl));
     let stdout = "";
     let stderr = "";
     let outputTooLarge = false;
@@ -1504,7 +1395,7 @@ function galleryDlInfo(url) {
           return {
             index: idx + 1,
             title: meta.description?.substring(0, 60) || `Media ${idx + 1}`,
-            thumbnail: isVideo ? (meta.display_url || null) : finalUrl,
+            thumbnail: previewPath(isVideo ? meta.display_url : finalUrl),
             duration: null,
             type: isVideo ? "video" : "image",
             hasVideo: isVideo,
@@ -1592,9 +1483,10 @@ function logError(type, url, error, extra) {
 
 // User bug report
 app.post("/api/report-bug", (req, res) => {
-  const { url, error, userAgent, comment } = req.body || {};
+  const { url, error, userAgent, comment, activityLog } = req.body || {};
   logError("user-report", shortText(url, MAX_URL_LENGTH), shortText(error) || "No error message", {
     comment: shortText(comment),
+    activityLog: sanitizeActivityLog(activityLog),
     userAgent: shortText(userAgent, 300) || req.headers["user-agent"],
     ip: req.ip,
   });
@@ -1620,11 +1512,11 @@ function buildDirectCdnInfo(url) {
     if (!MEDIA_EXTENSIONS.includes(ext)) return null;
     const videoExts = ["mp4", "webm"];
     const type = videoExts.includes(ext) ? "video" : "image";
-    const filename = decodeURIComponent(parsed.pathname.split("/").pop() || "media");
+    const filename = safeDecodeComponent(parsed.pathname.split("/").pop());
     const source = detectSource(url, "");
     return {
       title: filename,
-      thumbnail: type === "image" ? url : null,
+      thumbnail: previewPath(type === "image" ? url : null),
       duration: null,
       uploader: null,
       type,
@@ -1656,10 +1548,10 @@ async function tryDirectMedia(url) {
       if (ct.startsWith("audio/")) type = "audio";
       // Extract a title from the URL
       const urlPath = new URL(url).pathname;
-      const filename = decodeURIComponent(urlPath.split("/").pop() || "media");
+      const filename = safeDecodeComponent(urlPath.split("/").pop());
       return {
         title: filename,
-        thumbnail: type === "image" ? url : null,
+        thumbnail: previewPath(type === "image" ? url : null),
         duration: null,
         uploader: null,
         type,
@@ -1687,9 +1579,23 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "Erreur interne du serveur" });
 });
 
-app.listen(PORT, HOST, () => {
-  console.log(`Universal Downloader running on http://${HOST}:${PORT}`);
-  console.log(`Downloads dir: ${DOWNLOADS_DIR}`);
-  console.log(`gallery-dl: ${GALLERY_DL}`);
-  console.log(`deep scan: ${ENABLE_DEEP_SCAN ? "enabled" : "disabled"}`);
-});
+async function start() {
+  const proxyUrl = await getRelayUrl();
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`Universal Downloader running on http://${HOST}:${PORT}`);
+    console.log(`Downloads dir: ${DOWNLOADS_DIR}`);
+    console.log(`gallery-dl: ${GALLERY_DL}`);
+    console.log(`network relay: ${proxyUrl}`);
+  });
+  server.once("close", () => { networkRelay.close().catch(() => {}); });
+  return server;
+}
+
+if (require.main === module) {
+  start().catch(error => {
+    console.error("[START]", error.message);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { app, start };

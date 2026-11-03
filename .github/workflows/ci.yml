@@ -10,7 +10,7 @@ permissions:
 jobs:
   test:
     env:
-      PUPPETEER_SKIP_DOWNLOAD: "true"
+      YOUTUBE_DL_SKIP_DOWNLOAD: "true"
     strategy:
       matrix:
         node: [22, 24]

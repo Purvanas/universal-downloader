@@ -525,11 +525,6 @@
     var currentData = null;
     var currentFormat = 'video';
     var currentDownloadId = null;
-    var deepScanEnabled = false;
-    fetch('/api/capabilities')
-      .then(function(response) { return response.ok ? response.json() : {}; })
-      .then(function(data) { deepScanEnabled = data.deepScan === true; })
-      .catch(function() {});
     var eventSource = null;
 
     // Activity log for bug reports
@@ -546,13 +541,11 @@
         'Checking known platforms...',
         'Trying specialized extractors...',
         'Scanning the whole page...',
-        'Deep analysis (headless browser)...',
         'Almost there, this can take a few seconds...',
       ] : [
         'Recherche sur les plateformes connues...',
         'Essai des extracteurs specialises...',
         'Scan de la page entiere...',
-        'Analyse profonde (navigateur headless)...',
         'Presque fini, ca peut prendre quelques secondes...',
       ];
       var hintEl = document.getElementById('loading-hint');
@@ -588,7 +581,7 @@
       btn.classList.add('loading');
       btn.disabled = true;
       startLoadingHints();
-      logActivity('analyze', url);
+      logActivity('analyze', 'URL submitted');
 
       fetch('/api/analyze', {
         method: 'POST',
@@ -646,7 +639,7 @@
       btnScan.textContent = 'Scan en cours...';
       btnScan.disabled = true;
       btnAnalyze.disabled = true;
-      logActivity('scan', url);
+      logActivity('scan', 'URL submitted');
 
       fetch('/api/scan', {
         method: 'POST',
@@ -670,14 +663,6 @@
           lastError = err.message || "Erreur lors du scan";
           logActivity('scan-error', lastError);
           errorEl.textContent = lastError;
-          if (deepScanEnabled) {
-            var deepButton = document.createElement('button');
-            deepButton.type = 'button';
-            deepButton.textContent = '\uD83D\uDD25 Essayer le scan profond (plus lent, execute le JS de la page)';
-            deepButton.style.cssText = 'display:block;margin-top:0.5rem;padding:0.4rem 0.8rem;background:#7c4dff;color:#fff;border:none;border-radius:8px;font-size:0.8rem;font-weight:600;cursor:pointer';
-            deepButton.onclick = scanPageDeep;
-            errorEl.appendChild(deepButton);
-          }
           errorEl.classList.add('visible');
         })
         .finally(function() {
@@ -687,64 +672,14 @@
         });
     }
 
-    function scanPageDeep() {
-      var url = document.getElementById('url-input').value.trim();
-      if (!url) return;
-
-      var btnScan = document.getElementById('btn-scan');
-      var btnAnalyze = document.getElementById('btn-analyze');
-      var errorEl = document.getElementById('error-msg');
-      var previewEl = document.getElementById('preview');
-      var progressEl = document.getElementById('progress-section');
-      var featuresEl = document.getElementById('features');
-      var playlistEl = document.getElementById('playlist');
-
-      errorEl.classList.remove('visible');
-      errorEl.innerHTML = '';
-      previewEl.classList.remove('visible');
-      progressEl.classList.remove('visible');
-      playlistEl.classList.remove('visible');
-      lastError = null;
-
-      btnScan.textContent = 'Scan profond en cours (20-30s)...';
-      btnScan.disabled = true;
-      btnAnalyze.disabled = true;
-      logActivity('scan-deep', url);
-
-      fetch('/api/scan-deep', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url }),
-      })
-        .then(function(r) {
-          if (!r.ok) return r.json().then(function(d) { throw new Error(d.error); });
-          return r.json();
-        })
-        .then(function(data) {
-          logActivity('scan-deep-ok', data.count + ' medias');
-          featuresEl.style.display = 'none';
-          showPlaylist(data);
-          var info = document.getElementById('playlist-selected-info');
-          var extra = data.truncated ? ' / ' + data.totalFound + ' total' : '';
-          info.innerHTML = '<span style="color:#7c4dff">&#128293; Scan profond' + extra + '</span>';
-        })
-        .catch(function(err) {
-          lastError = err.message || "Erreur lors du scan profond";
-          logActivity('scan-deep-error', lastError);
-          errorEl.textContent = lastError;
-          errorEl.classList.add('visible');
-        })
-        .finally(function() {
-          btnScan.innerHTML = '&#128269; Scanner toute la page (extraire images + videos)';
-          btnScan.disabled = false;
-          btnAnalyze.disabled = false;
-        });
-    }
-
     // ===== PLAYLIST (multi-media posts) =====
     var playlistData = null;
     var playlistUrl = null;
     var playlistSelection = new Set();
+
+    function safePreviewPath(value) {
+      return typeof value === 'string' && /^\/api\/preview\/[a-f0-9]{64}$/.test(value) ? value : null;
+    }
 
     function showPlaylist(data) {
       playlistData = data;
@@ -767,9 +702,10 @@
         var div = document.createElement('div');
         div.className = 'playlist-item';
         div.dataset.index = idx;
-        if (item.thumbnail) {
+        var itemPreview = safePreviewPath(item.thumbnail);
+        if (itemPreview) {
           var image = document.createElement('img');
-          image.src = item.thumbnail;
+          image.src = itemPreview;
           image.alt = '';
           image.loading = 'lazy';
           image.referrerPolicy = 'no-referrer';
@@ -944,7 +880,8 @@
       var title = document.getElementById('preview-title');
       var uploader = document.getElementById('preview-uploader');
       var duration = document.getElementById('preview-duration');
-      if (data.thumbnail) { thumb.src = data.thumbnail; thumb.style.display = ''; } else { thumb.style.display = 'none'; }
+      var previewPath = safePreviewPath(data.thumbnail);
+      if (previewPath) { thumb.src = previewPath; thumb.style.display = ''; } else { thumb.removeAttribute('src'); thumb.style.display = 'none'; }
       source.textContent = data.source;
       source.className = 'preview-source source-' + data.source;
       title.textContent = data.title;
@@ -1160,7 +1097,7 @@
         document.getElementById('bug-modal').innerHTML = '<p style="color:#4caf50;text-align:center;padding:1rem;font-size:13px">Merci ! Votre rapport a ete envoye.</p>';
         setTimeout(function() {
           document.getElementById('bug-modal').classList.remove('visible');
-          document.getElementById('bug-modal').innerHTML = '<h3>&#128027; Signaler un probleme</h3><textarea id="bug-description" placeholder="Decrivez ce qui ne fonctionne pas..."></textarea><div class="bug-modal-info">Votre rapport inclura automatiquement un journal d\'activite anonyme.</div><button onclick="submitBugReport()">Envoyer le rapport</button>';
+          document.getElementById('bug-modal').innerHTML = '<h3>&#128027; Signaler un probleme</h3><textarea id="bug-description" placeholder="Decrivez ce qui ne fonctionne pas..."></textarea><div class="bug-modal-info">Le rapport inclut les actions recentes, le navigateur et l\'adresse IP. Les URL du journal sont retirees.</div><button onclick="submitBugReport()">Envoyer le rapport</button>';
         }, 2000);
       }).catch(function() {});
     }
@@ -1177,7 +1114,7 @@
   <div class="bug-modal" id="bug-modal">
     <h3>&#128027; Signaler un probleme</h3>
     <textarea id="bug-description" placeholder="Decrivez ce qui ne fonctionne pas..."></textarea>
-    <div class="bug-modal-info">Votre rapport inclura automatiquement un journal d'activite anonyme pour nous aider a reproduire le probleme.</div>
+    <div class="bug-modal-info">Le rapport inclut les actions recentes, le navigateur et l'adresse IP. Les URL du journal sont retirees.</div>
     <button onclick="submitBugReport()">Envoyer le rapport</button>
   </div>
 </body>
@@ -1196,7 +1133,7 @@
 <h3 style="font-size:.85rem;margin:12px 0 6px;color:#ddd">Description du service</h3>
 <p>Ce site propose des outils web gratuits (telechargement, conversion, partage de fichiers, generation de QR codes, edition photo, outils PDF, suppression de fond). Aucun compte utilisateur n est requis.</p>
 <h3 style="font-size:.85rem;margin:12px 0 6px;color:#ddd">Responsabilite</h3>
-<p>Conformement a l article 6 de la LCEN (Loi n 2004-575 du 21 juin 2004), l hebergeur n est pas responsable des contenus traites par les utilisateurs. Tout contenu signale comme illicite sera traite promptement.</p>
+<p>Le service traite les signalements de contenus ou d usages potentiellement illicites a l adresse de contact indiquee. Les responsabilites applicables dependent du role du service et du contexte ; aucune immunite generale n est revendiquee.</p>
 <h3 style="font-size:.85rem;margin:12px 0 6px;color:#ddd">Propriete intellectuelle</h3>
 <p>Les outils sont open source et disponibles sur GitHub. Les fichiers traites par les utilisateurs restent leur propriete.</p>
 <button onclick="this.parentElement.parentElement.style.display='none'" style="margin-top:16px;padding:8px 20px;background:#2a2a2a;color:#ccc;border:none;border-radius:8px;cursor:pointer;font-size:.8rem">Fermer</button>
@@ -1208,13 +1145,13 @@
 <div style="background:#141414;border:1px solid #2a2a2a;border-radius:12px;padding:24px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;color:#ccc;font-size:.8rem;line-height:1.6">
 <h2 style="font-size:1rem;margin-bottom:12px;color:#fff">Politique de confidentialite</h2>
 <h3 style="font-size:.85rem;margin:12px 0 6px;color:#ddd">Donnees collectees</h3>
-<p>Ce site ne collecte aucune donnee personnelle directement. Aucun compte utilisateur, aucun formulaire d inscription, aucun cookie propre.</p>
+<p>Aucun compte utilisateur ni cookie propre n est requis. Pour analyser ou telecharger un media, l URL distante demandee est transmise au serveur.</p>
 <h3 style="font-size:.85rem;margin:12px 0 6px;color:#ddd">Mesure d audience et publicite</h3>
 <p>Cette version ne charge aucun outil de mesure d audience ni regie publicitaire tierce.</p>
-<h3 style="font-size:.85rem;margin:12px 0 6px;color:#ddd">Fichiers traites</h3>
-<p>Les fichiers que vous uploadez (images, videos, PDF) sont traites temporairement puis supprimes automatiquement. Aucun fichier n est conserve de maniere permanente. Pour les outils cote client (QR Generator, PDF Tools), vos fichiers ne quittent jamais votre navigateur.</p>
-<h3 style="font-size:.85rem;margin:12px 0 6px;color:#ddd">Logs serveur</h3>
-<p>Les adresses IP sont enregistrees dans les logs du serveur web et conservees conformement au decret n 2011-219 du 25 fevrier 2011. Ces logs ne sont pas partages avec des tiers.</p>
+<h3 style="font-size:.85rem;margin:12px 0 6px;color:#ddd">Medias temporaires</h3>
+<p>Le service recupere le media depuis l URL distante et peut le stocker temporairement pendant le telechargement. Ces fichiers sont supprimes automatiquement apres leur utilisation ou au plus tard par le nettoyage periodique des fichiers ages de plus de dix minutes.</p>
+<h3 style="font-size:.85rem;margin:12px 0 6px;color:#ddd">Journal de diagnostic</h3>
+<p>Le fichier local de diagnostic conserve au maximum les 500 entrees les plus recentes : date, type d erreur, message et URL nettoyee. Les identifiants de connexion, parametres et fragments sont retires, mais le chemin de l URL peut encore contenir un identifiant de contenu. Un signalement volontaire ajoute le commentaire, un contexte d actions limite sans URL brute, le navigateur et l adresse IP.</p>
 <h3 style="font-size:.85rem;margin:12px 0 6px;color:#ddd">Contact</h3>
 <p>Pour toute question relative a vos donnees : <a href="mailto:contact@purvanas.fr" style="color:#7c4dff">contact@purvanas.fr</a></p>
 <button onclick="this.parentElement.parentElement.style.display='none'" style="margin-top:16px;padding:8px 20px;background:#2a2a2a;color:#ccc;border:none;border-radius:8px;cursor:pointer;font-size:.8rem">Fermer</button>
