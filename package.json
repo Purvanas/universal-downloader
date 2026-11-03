@@ -1,0 +1,20 @@
+{
+  "name": "universal-downloader",
+  "version": "1.0.0",
+  "description": "Universal media downloader - video, audio, photos from any platform",
+  "private": true,
+  "license": "MIT",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check lib/network-security.js",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "express": "^5.2.1",
+    "puppeteer": "^24.40.0",
+    "youtube-dl-exec": "^3.0.12"
+  }
+}

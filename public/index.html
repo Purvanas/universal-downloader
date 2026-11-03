@@ -1,0 +1,1225 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Downloader gratuit — Telecharger et convertir en GIF, MP3, MP4</title>
+  <meta name="description" content="Analyser et telecharger les medias pris en charge par yt-dlp et gallery-dl, puis les convertir en GIF, MP3 ou MP4. Gratuit et sans inscription.">
+  <meta name="keywords" content="youtube downloader, twitter downloader, instagram downloader, tiktok downloader, facebook downloader, telecharger video youtube, telecharger video twitter, youtube mp3, telecharger video gratuit, reddit downloader">
+  <meta property="og:title" content="Universal Downloader — Telecharger videos gratuitement">
+  <meta property="og:description" content="Telechargez videos, audio et photos depuis YouTube, Instagram, TikTok. Gratuit.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://dl.purvanas.fr">
+  <link rel="canonical" href="https://dl.purvanas.fr">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230a0e1a'/><path d='M50 20v40m0 0l-15-15m15 15l15-15' stroke='%237c4dff' stroke-width='8' stroke-linecap='round' stroke-linejoin='round' fill='none'/><path d='M25 72h50' stroke='%237c4dff' stroke-width='8' stroke-linecap='round'/></svg>">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0e1a;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .header {
+      width: 100%;
+      padding: 2rem 1rem 1rem;
+      text-align: center;
+      background: linear-gradient(135deg, #1a1f35 0%, #0a0e1a 100%);
+    }
+    .header h1 { font-size: 1.8rem; font-weight: 700; letter-spacing: -0.5px; }
+    .header h1 .accent { color: #7c4dff; }
+    .header p { color: #888; font-size: 0.85rem; margin-top: 0.3rem; }
+
+    /* ===== PLATFORMS ===== */
+    .platforms {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.6rem;
+      margin-top: 1rem;
+      padding: 0 1rem;
+    }
+    .platform-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0.3rem 0.7rem;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      border: 1px solid transparent;
+    }
+    .platform-tag.yt { background: #ff000015; color: #ff4444; border-color: #ff000030; }
+    .platform-tag.ig { background: #e1306c15; color: #e1306c; border-color: #e1306c30; }
+    .platform-tag.tw { background: #1da1f215; color: #1da1f2; border-color: #1da1f230; }
+    .platform-tag.tk { background: #00f2ea15; color: #00f2ea; border-color: #00f2ea30; }
+    .platform-tag.rd { background: #ff450015; color: #ff6600; border-color: #ff450030; }
+    .platform-tag.fb { background: #1877f215; color: #1877f2; border-color: #1877f230; }
+    .platform-tag.sc { background: #ff550015; color: #ff5500; border-color: #ff550030; }
+    .platform-tag.vi { background: #1ab7ea15; color: #1ab7ea; border-color: #1ab7ea30; }
+    .platform-tag.pi { background: #e6002215; color: #e60023; border-color: #e6002230; }
+    .platform-tag.dm { background: #00aaff15; color: #00aaff; border-color: #00aaff30; }
+    .platform-tag.th { background: #9146ff15; color: #9146ff; border-color: #9146ff30; }
+    .platform-tag.other { background: #7c4dff15; color: #7c4dff; border-color: #7c4dff30; }
+
+    .container { width: 100%; max-width: 600px; padding: 0 1rem 2rem; }
+
+    /* ===== URL INPUT ===== */
+    .input-group { display: flex; gap: 0.5rem; margin-top: 1.5rem; }
+    .input-group input {
+      flex: 1; padding: 0.85rem 1rem; border: 2px solid #2a2f45; border-radius: 12px;
+      background: #1e2433; color: #e0e0e0; font-size: 0.95rem; outline: none; transition: border-color 0.2s;
+    }
+    .input-group input:focus { border-color: #7c4dff; }
+    .input-group input::placeholder { color: #555; }
+    .btn-paste {
+      padding: 0.85rem; border: 2px solid #2a2f45; border-radius: 12px; background: #1e2433;
+      color: #888; font-size: 1rem; cursor: pointer; transition: all 0.2s; line-height: 1;
+    }
+    .btn-paste:hover { border-color: #7c4dff; color: #ccc; }
+    .btn-analyze {
+      padding: 0.85rem 1.5rem; border: none; border-radius: 12px; background: #7c4dff; color: #fff;
+      font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s, transform 0.1s; white-space: nowrap;
+    }
+    .btn-analyze:hover { background: #651fff; }
+    .btn-analyze:active { transform: scale(0.97); }
+    .btn-analyze:disabled { background: #3a3f55; cursor: not-allowed; }
+    .btn-analyze.loading { position: relative; color: transparent; }
+    .btn-analyze.loading::after {
+      content: ''; position: absolute; top: 50%; left: 50%; width: 20px; height: 20px;
+      margin: -10px 0 0 -10px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
+      border-radius: 50%; animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error-msg {
+      display: none; margin-top: 1rem; padding: 0.8rem 1rem; background: rgba(244,67,54,0.15);
+      border: 1px solid rgba(244,67,54,0.3); border-radius: 10px; color: #ef5350; font-size: 0.85rem;
+    }
+    .error-msg.visible { display: block; }
+    .bottom-bar {
+      position: fixed; bottom: 0; left: 0; right: 0; display: flex; justify-content: center;
+      gap: 0.5rem; padding: 10px; z-index: 9999;
+    }
+    .bottom-btn {
+      display: inline-flex; align-items: center; gap: 5px; padding: 7px 14px;
+      border-radius: 10px; font-size: 12px; font-weight: 600; text-decoration: none;
+      cursor: pointer; font-family: -apple-system, sans-serif; border: none; transition: transform 0.2s;
+      box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    }
+    .bottom-btn:hover { transform: scale(1.05); }
+    .bottom-btn-kofi { background: #ff5e5b; color: #fff; }
+    .bottom-btn-bug { background: #1e2433; color: #888; border: 1px solid #2a2f45; }
+    .bottom-btn-bug:hover { color: #ccc; border-color: #7c4dff; }
+
+    .bug-modal {
+      display: none; position: fixed; bottom: 50px; left: 50%; transform: translateX(-50%);
+      background: #1e2433; border: 1px solid #2a2f45; border-radius: 14px; padding: 16px;
+      width: 320px; z-index: 10000; box-shadow: 0 8px 32px rgba(0,0,0,.5);
+    }
+    .bug-modal.visible { display: block; }
+    .bug-modal h3 { font-size: 0.85rem; color: #ccc; margin-bottom: 8px; }
+    .bug-modal textarea {
+      width: 100%; height: 70px; background: #0a0e1a; border: 1px solid #2a2f45; border-radius: 8px;
+      color: #ccc; padding: 8px; font-size: 12px; resize: none; font-family: -apple-system, sans-serif;
+      margin-bottom: 8px; outline: none;
+    }
+    .bug-modal textarea:focus { border-color: #7c4dff; }
+    .bug-modal-info { font-size: 10px; color: #444; margin-bottom: 8px; }
+    .bug-modal button {
+      width: 100%; padding: 8px; background: #7c4dff; color: #fff; border: none; border-radius: 8px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .bug-modal button:hover { background: #651fff; }
+
+    /* ===== FEATURES ===== */
+    .features {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.8rem;
+      margin-top: 1.5rem;
+    }
+    .feature {
+      background: #1e2433;
+      border: 1px solid #2a2f45;
+      border-radius: 12px;
+      padding: 1rem;
+      text-align: center;
+    }
+    .feature-icon { font-size: 1.5rem; margin-bottom: 0.4rem; }
+    .feature-title { font-size: 0.8rem; font-weight: 600; color: #e0e0e0; }
+    .feature-desc { font-size: 0.7rem; color: #666; margin-top: 0.2rem; line-height: 1.3; }
+
+    /* ===== PLAYLIST GRID ===== */
+    .playlist { display: none; margin-top: 1.5rem; background: #1e2433; border-radius: 16px; padding: 1.2rem; animation: fadeIn 0.3s ease; }
+    .playlist.visible { display: block; }
+    .playlist-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; flex-wrap: wrap; gap: 0.5rem; }
+    .playlist-header h3 { font-size: 0.95rem; color: #ccc; font-weight: 600; }
+    .playlist-header .count { color: #7c4dff; font-weight: 700; }
+    .playlist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.6rem; }
+    .playlist-item {
+      position: relative; background: #0a0e1a; border: 2px solid #2a2f45; border-radius: 10px;
+      overflow: hidden; cursor: pointer; transition: border-color 0.2s, transform 0.1s;
+      aspect-ratio: 1 / 1;
+    }
+    .playlist-item:hover { border-color: #7c4dff; }
+    .playlist-item.selected { border-color: #7c4dff; box-shadow: 0 0 0 3px rgba(124, 77, 255, 0.25); }
+    .playlist-item img {
+      width: 100%; height: 100%; object-fit: cover; display: block; background: #151a2a;
+    }
+    .playlist-item .badge {
+      position: absolute; top: 6px; left: 6px; padding: 2px 7px; border-radius: 6px;
+      font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+      background: rgba(0,0,0,0.7); color: #fff; backdrop-filter: blur(4px);
+    }
+    .playlist-item .badge.video { background: rgba(124, 77, 255, 0.9); }
+    .playlist-item .badge.image { background: rgba(76, 175, 80, 0.9); }
+    .playlist-item .check {
+      position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; border-radius: 50%;
+      background: #7c4dff; color: #fff; display: none; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700;
+    }
+    .playlist-item.selected .check { display: flex; }
+    .playlist-item .num {
+      position: absolute; bottom: 6px; right: 6px; padding: 2px 6px; border-radius: 6px;
+      font-size: 0.65rem; font-weight: 700; background: rgba(0,0,0,0.7); color: #fff;
+    }
+    .playlist-actions { display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; }
+    .playlist-actions button {
+      flex: 1; padding: 0.7rem; border: none; border-radius: 10px; font-size: 0.85rem;
+      font-weight: 600; cursor: pointer; transition: all 0.2s; min-width: 120px;
+    }
+    .btn-pl-download { background: #4caf50; color: #fff; }
+    .btn-pl-download:hover { background: #43a047; }
+    .btn-pl-download:disabled { background: #2a3a2a; cursor: not-allowed; color: #666; }
+    .btn-pl-all { background: transparent; border: 2px solid #7c4dff !important; color: #7c4dff; padding: calc(0.7rem - 2px) !important; }
+    .btn-pl-all:hover { background: #7c4dff22; }
+    .playlist-progress { display: none; margin-top: 1rem; padding: 0.8rem; background: #151a2a; border-radius: 10px; font-size: 0.8rem; color: #aaa; }
+    .playlist-progress.visible { display: block; }
+
+    /* ===== PREVIEW CARD ===== */
+    .preview { display: none; margin-top: 1.5rem; background: #1e2433; border-radius: 16px; overflow: hidden; animation: fadeIn 0.3s ease; }
+    .preview.visible { display: block; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .preview-thumb { width: 100%; aspect-ratio: 16/9; object-fit: cover; background: #151a2a; }
+    .preview-info { padding: 1rem 1.2rem; }
+    .preview-source {
+      display: inline-block; padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.7rem;
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem;
+    }
+    .source-youtube { background: #ff000022; color: #ff4444; }
+    .source-instagram { background: #e1306c22; color: #e1306c; }
+    .source-twitter { background: #1da1f222; color: #1da1f2; }
+    .source-tiktok { background: #00f2ea22; color: #00f2ea; }
+    .source-reddit { background: #ff450022; color: #ff6600; }
+    .source-twitch { background: #9146ff22; color: #9146ff; }
+    .source-soundcloud { background: #ff550022; color: #ff5500; }
+    .source-facebook { background: #1877f222; color: #1877f2; }
+    .source-other { background: #7c4dff22; color: #7c4dff; }
+    .source-vimeo { background: #1ab7ea22; color: #1ab7ea; }
+    .source-pinterest { background: #e6002222; color: #e60023; }
+    .source-dailymotion { background: #00aaff22; color: #00aaff; }
+    .preview-title { font-size: 1rem; font-weight: 600; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .preview-meta { display: flex; gap: 1rem; margin-top: 0.4rem; color: #888; font-size: 0.8rem; }
+
+    .format-tabs { display: flex; gap: 0.5rem; padding: 0 1.2rem; margin-top: 0.5rem; }
+    .tab {
+      flex: 1; padding: 0.6rem; border: 2px solid #2a2f45; border-radius: 10px; background: transparent;
+      color: #888; font-size: 0.85rem; font-weight: 600; cursor: pointer; text-align: center; transition: all 0.2s;
+    }
+    .tab:hover { border-color: #7c4dff; color: #ccc; }
+    .tab.active { border-color: #7c4dff; background: #7c4dff22; color: #fff; }
+    .tab:disabled { opacity: 0.3; cursor: not-allowed; }
+    .tab:disabled:hover { border-color: #2a2f45; color: #888; }
+
+    .options { padding: 1rem 1.2rem; display: none; }
+    .options.visible { display: block; }
+    .options label { display: block; font-size: 0.8rem; color: #888; margin-bottom: 0.4rem; }
+    .options select {
+      width: 100%; padding: 0.6rem 0.8rem; border: 2px solid #2a2f45; border-radius: 10px;
+      background: #151a2a; color: #e0e0e0; font-size: 0.9rem; outline: none; cursor: pointer;
+    }
+    .options select:focus { border-color: #7c4dff; }
+
+    .btn-download {
+      display: block; width: calc(100% - 2.4rem); margin: 1rem 1.2rem 1.2rem; padding: 0.85rem;
+      border: none; border-radius: 12px; background: #4caf50; color: #fff; font-size: 1rem;
+      font-weight: 600; cursor: pointer; transition: background 0.2s, transform 0.1s;
+    }
+    .btn-download:hover { background: #43a047; }
+    .btn-download:active { transform: scale(0.98); }
+    .btn-download:disabled { background: #2a3a2a; cursor: not-allowed; }
+
+    .progress-section { display: none; margin-top: 1.5rem; background: #1e2433; border-radius: 16px; padding: 1.2rem; animation: fadeIn 0.3s ease; }
+    .progress-section.visible { display: block; }
+    .progress-label { font-size: 0.85rem; color: #ccc; margin-bottom: 0.6rem; display: flex; justify-content: space-between; }
+    .progress-bar { width: 100%; height: 8px; background: #2a2f45; border-radius: 4px; overflow: hidden; }
+    .progress-bar-fill { height: 100%; background: linear-gradient(90deg, #7c4dff, #b47cff); border-radius: 4px; transition: width 0.3s ease; width: 0%; }
+    .progress-details { display: flex; justify-content: space-between; margin-top: 0.5rem; font-size: 0.75rem; color: #666; }
+
+    .btn-save {
+      display: none; width: 100%; margin-top: 1rem; padding: 0.85rem; border: none; border-radius: 12px;
+      background: #4caf50; color: #fff; font-size: 1rem; font-weight: 600; cursor: pointer; transition: background 0.2s; animation: fadeIn 0.3s ease;
+    }
+    .btn-save.visible { display: block; }
+    .btn-save:hover { background: #43a047; }
+
+    .btn-convert {
+      display: none; width: 100%; margin-top: 0.5rem; padding: 0.75rem; border: 2px solid #f59e0b;
+      border-radius: 12px; background: transparent; color: #f59e0b; font-size: 0.9rem; font-weight: 600;
+      cursor: pointer; transition: all 0.2s; text-decoration: none; text-align: center;
+    }
+    .btn-convert.visible { display: block; }
+    .btn-convert:hover { background: #f59e0b; color: #000; }
+
+    /* ===== CROSS-LINKS ===== */
+    .cross-links {
+      display: flex; gap: 0.6rem; margin-top: 1.5rem; flex-wrap: wrap; justify-content: center;
+    }
+    .cross-link {
+      padding: 0.5rem 1rem; border: 1px solid #2a2f45; border-radius: 10px; background: #1e2433;
+      color: #888; font-size: 0.75rem; text-decoration: none; transition: all 0.2s;
+    }
+    .cross-link:hover { border-color: #7c4dff; color: #ccc; }
+    .cross-link span { color: #7c4dff; }
+
+    /* ===== SEO CONTENT ===== */
+    .seo-section {
+      width: 100%;
+      max-width: 600px;
+      padding: 2rem 1rem;
+      margin-top: 1rem;
+      border-top: 1px solid #1e2433;
+    }
+    .seo-section h2 { font-size: 1.1rem; font-weight: 600; color: #ccc; margin-bottom: 0.8rem; }
+    .seo-section h3 { font-size: 0.9rem; font-weight: 600; color: #999; margin: 1.2rem 0 0.4rem; }
+    .seo-section p { font-size: 0.8rem; color: #555; line-height: 1.6; margin-bottom: 0.8rem; }
+    .faq { margin-top: 1.5rem; }
+    .faq details { margin-bottom: 0.6rem; border: 1px solid #1e2433; border-radius: 8px; padding: 0; }
+    .faq summary {
+      padding: 0.7rem 1rem; font-size: 0.8rem; font-weight: 600; color: #aaa; cursor: pointer;
+      list-style: none; display: flex; justify-content: space-between; align-items: center;
+    }
+    .faq summary::-webkit-details-marker { display: none; }
+    .faq summary::after { content: '+'; color: #7c4dff; font-size: 1rem; }
+    .faq details[open] summary::after { content: '-'; }
+    .faq details p { padding: 0 1rem 0.7rem; margin: 0; }
+
+    .footer { margin-top: auto; padding: 1.5rem; text-align: center; color: #333; font-size: 0.7rem; }
+
+    @media (max-width: 480px) {
+      .input-group { flex-direction: column; }
+      .btn-analyze { width: 100%; }
+      .header h1 { font-size: 1.5rem; }
+      .format-tabs { gap: 0.3rem; }
+      .tab { padding: 0.5rem 0.3rem; font-size: 0.8rem; }
+      .features { grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+      .feature { padding: 0.8rem 0.5rem; }
+    }
+  </style>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Universal Downloader","url":"https://dl.purvanas.fr","description":"Telecharger videos audio et photos depuis YouTube Instagram TikTok Twitter et plus. Gratuit, sans inscription.","applicationCategory":"MultimediaApplication","operatingSystem":"All","offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"}}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Comment telecharger puis convertir un media ?","acceptedAnswer":{"@type":"Answer","text":"Collez le lien, lancez l analyse, choisissez un format puis utilisez le convertisseur propose une fois le fichier pret."}},{"@type":"Question","name":"Quels sites sont compatibles ?","acceptedAnswer":{"@type":"Answer","text":"La compatibilite depend des extracteurs yt-dlp et gallery-dl, du site source et de leurs evolutions."}},{"@type":"Question","name":"Faut-il creer un compte ?","acceptedAnswer":{"@type":"Answer","text":"Non. L interface publique ne demande aucun compte utilisateur."}}]}</script>
+</head>
+<body>
+  <div class="header">
+    <h1><span class="accent">DL</span> — Universal Downloader</h1>
+    <p>Colle n'importe quel lien, recupere les medias. C'est tout.</p>
+    <div class="platforms">
+      <span class="platform-tag yt">YouTube</span>
+      <span class="platform-tag ig">Instagram</span>
+      <span class="platform-tag tw">Twitter / X</span>
+      <span class="platform-tag tk">TikTok</span>
+      <span class="platform-tag rd">Reddit</span>
+      <span class="platform-tag fb">Facebook</span>
+      <span class="platform-tag sc">SoundCloud</span>
+      <span class="platform-tag th">Twitch</span>
+      <span class="platform-tag vi">Vimeo</span>
+      <span class="platform-tag pi">Pinterest</span>
+      <span class="platform-tag dm">Dailymotion</span>
+      <span class="platform-tag other">yt-dlp + gallery-dl</span>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="input-group">
+      <input type="text" id="url-input" placeholder="Coller n'importe quel lien (video, photo, page web...)" autofocus>
+      <button class="btn-paste" onclick="pasteUrl()" title="Coller">&#x1F4CB;</button>
+      <button class="btn-analyze" id="btn-analyze" onclick="analyze()">Analyser</button>
+    </div>
+
+    <div class="loading-hint" id="loading-hint" style="display:none; margin-top: 0.5rem; text-align: center; font-size: 0.75rem; color: #666;">
+      <span id="loading-hint-text">Recherche en cours...</span>
+    </div>
+
+    <div class="error-msg" id="error-msg"></div>
+
+    <!-- FEATURES -->
+    <div class="features" id="features">
+      <div class="feature">
+        <div class="feature-icon">&#127909;</div>
+        <div class="feature-title">Video HD</div>
+        <div class="feature-desc">Qualites disponibles selon la source</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#127925;</div>
+        <div class="feature-title">Audio MP3</div>
+        <div class="feature-desc">Extraire l'audio en MP3, M4A, WAV</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#128279;</div>
+        <div class="feature-title">Multi-sources</div>
+        <div class="feature-desc">Extracteurs yt-dlp et gallery-dl</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#127916;</div>
+        <div class="feature-title">DL + GIF</div>
+        <div class="feature-desc">Telecharger et convertir en GIF en 2 clics</div>
+      </div>
+    </div>
+
+    <!-- PLAYLIST GRID (multi-media posts) -->
+    <div class="playlist" id="playlist">
+      <div class="playlist-header">
+        <h3><span class="count" id="playlist-count">0</span> <span id="playlist-label">medias detectes</span></h3>
+        <span id="playlist-selected-info" style="font-size:0.8rem;color:#888"></span>
+      </div>
+      <div class="playlist-grid" id="playlist-grid"></div>
+      <div class="playlist-actions">
+        <button class="btn-pl-download" id="btn-pl-download" onclick="downloadSelected()" disabled>Telecharger la selection</button>
+        <button class="btn-pl-all btn-pl-download" id="btn-pl-all" onclick="downloadAllPlaylist()">Tout telecharger</button>
+      </div>
+      <div class="playlist-progress" id="playlist-progress"></div>
+    </div>
+
+    <!-- PREVIEW CARD -->
+    <div class="preview" id="preview">
+      <img class="preview-thumb" id="preview-thumb" src="" alt="">
+      <div class="preview-info">
+        <span class="preview-source" id="preview-source"></span>
+        <div class="preview-title" id="preview-title"></div>
+        <div class="preview-meta">
+          <span id="preview-uploader"></span>
+          <span id="preview-duration"></span>
+        </div>
+      </div>
+      <div class="format-tabs">
+        <button class="tab active" data-format="video" id="tab-video" onclick="selectTab('video')">Video</button>
+        <button class="tab" data-format="audio" id="tab-audio" onclick="selectTab('audio')">Audio</button>
+        <button class="tab" data-format="image" id="tab-image" onclick="selectTab('image')">Photo</button>
+      </div>
+      <div class="options visible" id="options-video">
+        <label>Qualite</label>
+        <select id="quality-select"></select>
+      </div>
+      <div class="options" id="options-audio">
+        <label>Format audio</label>
+        <select id="audio-format-select">
+          <option value="mp3">MP3</option>
+          <option value="m4a">M4A</option>
+          <option value="opus">OPUS</option>
+          <option value="wav">WAV</option>
+        </select>
+      </div>
+      <div class="options" id="options-image">
+        <p style="color:#888;font-size:0.85rem">Telechargement au format original</p>
+      </div>
+      <button class="btn-download" id="btn-download" onclick="startDownload()">Telecharger</button>
+    </div>
+
+    <!-- PROGRESS -->
+    <div class="progress-section" id="progress-section">
+      <div class="progress-label">
+        <span id="progress-status">Telechargement...</span>
+        <span id="progress-percent">0%</span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-bar-fill" id="progress-fill"></div>
+      </div>
+      <div class="progress-details">
+        <span id="progress-speed"></span>
+        <span id="progress-eta"></span>
+      </div>
+      <button class="btn-save" id="btn-save" onclick="saveFile()">Enregistrer le fichier</button>
+      <a class="btn-convert" id="btn-convert" target="_blank">&#9889; Convertir cette video</a>
+    </div>
+
+    <!-- CROSS LINKS -->
+    <div class="cross-links">
+      <a class="cross-link" href="https://convert.purvanas.fr"><span>&#9881;</span> Convertir une video/image</a>
+      <a class="cross-link" href="https://qr.purvanas.fr"><span>&#9638;</span> Generateur QR Code</a>
+      <a class="cross-link" href="https://drop.purvanas.fr"><span>&#8682;</span> Partager un fichier</a>
+    </div>
+  </div>
+
+  <!-- SEO CONTENT -->
+  <div class="seo-section">
+    <h2>Telecharger et convertir des videos en ligne</h2>
+    <p>Universal Downloader combine telechargement et conversion dans un meme parcours. Telechargez une video, convertissez-la en GIF ou extrayez sa piste audio, sans installer de logiciel. La compatibilite repose sur yt-dlp et gallery-dl et evolue avec les sites sources.</p>
+
+    <h3>Telecharger une video et la convertir en GIF — en 2 clics</h3>
+    <p>Une fois le fichier pret, un bouton l'ouvre directement dans le convertisseur pour produire un GIF, un WebM ou un MP4 compresse. Le telechargement et la conversion restent ainsi dans un parcours continu.</p>
+
+    <h3>YouTube Downloader — MP4 HD et extraction audio</h3>
+    <p>Choisissez parmi les qualites exposees par l'extracteur, ou extrayez l'audio en MP3, M4A ou WAV. La disponibilite depend de la source et, pour les contenus restreints, d'une session locale valide.</p>
+
+    <h3>Twitter / X Downloader — videos et GIF depuis les tweets</h3>
+    <p>Les videos Twitter sont difficiles a sauvegarder : pas de bouton de telechargement, pas de clic droit. Universal Downloader detecte automatiquement les videos et images dans les tweets. Collez le lien du tweet, telechargez la video en MP4, puis convertissez-la en GIF si besoin — le tout sans quitter l'outil. Fonctionne avec twitter.com et x.com.</p>
+
+    <h3>Instagram Downloader — reels, stories, publications</h3>
+    <p>Selon les contenus accessibles aux extracteurs, l'outil peut recuperer videos, photos et carrousels depuis un lien de publication Instagram.</p>
+
+    <h3>TikTok Downloader — video puis conversion</h3>
+    <p>Lorsqu'une video est accessible a l'extracteur, elle peut etre enregistree en MP4 puis envoyee au convertisseur pour produire un GIF.</p>
+
+    <h3>Facebook, Reddit, SoundCloud, Twitch et autres sources</h3>
+    <p>La compatibilite est maintenue par yt-dlp et gallery-dl et change avec les plateformes. Les liens directs vers des images, videos ou pistes audio disposent aussi d'un parcours dedie.</p>
+
+    <h3>Pourquoi Universal Downloader ?</h3>
+    <p>Universal Downloader integre telechargement et conversion : une video peut etre transformee en GIF, MP3, WebM ou MP4 compresse sans changer de parcours. L'outil est gratuit, open source, auto-heberge en France et ne demande aucun compte.</p>
+
+    <div class="faq">
+      <h2>Questions frequentes</h2>
+      <details>
+        <summary>Comment telecharger une video et la convertir en GIF ?</summary>
+        <p>Collez le lien de la video (YouTube, Twitter, TikTok...) et cliquez sur "Analyser". Telechargez la video, puis cliquez sur le bouton "Convertir cette video" qui apparait. Le convertisseur s'ouvre avec votre video deja chargee — choisissez GIF et validez. Le tout prend moins de 30 secondes.</p>
+      </details>
+      <details>
+        <summary>Comment telecharger une video YouTube ?</summary>
+        <p>Copiez l'URL de la video YouTube. Collez-la dans le champ ci-dessus et cliquez sur "Analyser". Choisissez la qualite (4K, 1080p, 720p...) et le format (MP4 video ou MP3 audio), puis cliquez sur "Telecharger".</p>
+      </details>
+      <details>
+        <summary>Peut-on telecharger des videos YouTube avec restriction d'age ?</summary>
+        <p>Certains contenus exigent une session valide. Une instance auto-hebergee peut fournir un fichier de cookies local ; la compatibilite depend ensuite de yt-dlp et du site source.</p>
+      </details>
+      <details>
+        <summary>Comment convertir une video Twitter en GIF ?</summary>
+        <p>Collez le lien du tweet contenant la video. Cliquez sur "Analyser" puis "Telecharger". Une fois le telechargement termine, cliquez sur "Convertir cette video". Le convertisseur s'ouvre avec la video prete — selectionnez GIF et cliquez sur Convertir.</p>
+      </details>
+      <details>
+        <summary>Comment convertir une video YouTube en MP3 ?</summary>
+        <p>Collez le lien YouTube, cliquez sur "Analyser", selectionnez l'onglet "Audio", choisissez MP3, et cliquez sur "Telecharger". L'extraction audio est directe, sans etape de conversion supplementaire.</p>
+      </details>
+      <details>
+        <summary>C'est gratuit ? Il y a des limites ?</summary>
+        <p>L'instance publique est gratuite et sans inscription. Elle applique toutefois des limites de taille, de duree et de concurrence pour rester stable.</p>
+      </details>
+      <details>
+        <summary>Quels sites sont supportes ?</summary>
+        <p>La liste de compatibilite est maintenue par les projets yt-dlp et gallery-dl. Elle evolue avec les plateformes et aucune URL arbitraire n'est garantie.</p>
+      </details>
+      <details>
+        <summary>Faut-il installer un logiciel ?</summary>
+        <p>Non. Tout se passe dans votre navigateur web. Aucune extension, aucune application a installer. Fonctionne sur ordinateur, tablette et telephone.</p>
+      </details>
+    </div>
+  </div>
+
+  <div class="footer">dl.purvanas.fr — Outil gratuit et open source</div>
+
+  <script>
+    var currentData = null;
+    var currentFormat = 'video';
+    var currentDownloadId = null;
+    var deepScanEnabled = false;
+    fetch('/api/capabilities')
+      .then(function(response) { return response.ok ? response.json() : {}; })
+      .then(function(data) { deepScanEnabled = data.deepScan === true; })
+      .catch(function() {});
+    var eventSource = null;
+
+    // Activity log for bug reports
+    var activityLog = [];
+    function logActivity(action, detail) {
+      activityLog.push({ t: new Date().toISOString().substring(11, 19), a: action, d: (detail || '').substring(0, 200) });
+      if (activityLog.length > 30) activityLog.shift();
+    }
+
+    var loadingHintTimer = null;
+    function startLoadingHints() {
+      var isEn = typeof i18n !== 'undefined' && i18n.lang && i18n.lang() === 'en';
+      var hints = isEn ? [
+        'Checking known platforms...',
+        'Trying specialized extractors...',
+        'Scanning the whole page...',
+        'Deep analysis (headless browser)...',
+        'Almost there, this can take a few seconds...',
+      ] : [
+        'Recherche sur les plateformes connues...',
+        'Essai des extracteurs specialises...',
+        'Scan de la page entiere...',
+        'Analyse profonde (navigateur headless)...',
+        'Presque fini, ca peut prendre quelques secondes...',
+      ];
+      var hintEl = document.getElementById('loading-hint');
+      var textEl = document.getElementById('loading-hint-text');
+      hintEl.style.display = '';
+      var i = 0;
+      textEl.textContent = hints[0];
+      clearInterval(loadingHintTimer);
+      loadingHintTimer = setInterval(function() {
+        i = Math.min(i + 1, hints.length - 1);
+        textEl.textContent = hints[i];
+      }, 5000);
+    }
+    function stopLoadingHints() {
+      clearInterval(loadingHintTimer);
+      document.getElementById('loading-hint').style.display = 'none';
+    }
+
+    function analyze() {
+      var url = document.getElementById('url-input').value.trim();
+      if (!url) return;
+      var btn = document.getElementById('btn-analyze');
+      var errorEl = document.getElementById('error-msg');
+      var previewEl = document.getElementById('preview');
+      var progressEl = document.getElementById('progress-section');
+      var featuresEl = document.getElementById('features');
+      errorEl.classList.remove('visible');
+      previewEl.classList.remove('visible');
+      progressEl.classList.remove('visible');
+      var playlistEl = document.getElementById('playlist');
+      playlistEl.classList.remove('visible');
+      lastError = null;
+      btn.classList.add('loading');
+      btn.disabled = true;
+      startLoadingHints();
+      logActivity('analyze', url);
+
+      fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url }),
+      })
+        .then(function(r) {
+          if (!r.ok) return r.json().then(function(d) { throw new Error(d.error); });
+          return r.json();
+        })
+        .then(function(data) {
+          currentData = data;
+          logActivity('analyze-ok', data.source + ' | ' + data.title);
+          featuresEl.style.display = 'none';
+          if (data.type === 'playlist') {
+            showPlaylist(data);
+          } else {
+            showPreview(data);
+          }
+        })
+        .catch(function(err) {
+          lastError = err.message || "Erreur lors de l'analyse";
+          logActivity('analyze-error', lastError);
+          errorEl.textContent = lastError;
+          errorEl.classList.add('visible');
+          document.getElementById('bug-modal').classList.add('visible');
+        })
+        .finally(function() {
+          btn.classList.remove('loading');
+          btn.disabled = false;
+          stopLoadingHints();
+        });
+    }
+
+    // ===== SCAN PAGE =====
+    function scanPage() {
+      var url = document.getElementById('url-input').value.trim();
+      if (!url) { document.getElementById('url-input').focus(); return; }
+
+      var btnScan = document.getElementById('btn-scan');
+      var btnAnalyze = document.getElementById('btn-analyze');
+      var errorEl = document.getElementById('error-msg');
+      var previewEl = document.getElementById('preview');
+      var progressEl = document.getElementById('progress-section');
+      var featuresEl = document.getElementById('features');
+      var playlistEl = document.getElementById('playlist');
+
+      errorEl.classList.remove('visible');
+      previewEl.classList.remove('visible');
+      progressEl.classList.remove('visible');
+      playlistEl.classList.remove('visible');
+      lastError = null;
+
+      var originalText = btnScan.textContent;
+      btnScan.textContent = 'Scan en cours...';
+      btnScan.disabled = true;
+      btnAnalyze.disabled = true;
+      logActivity('scan', url);
+
+      fetch('/api/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url }),
+      })
+        .then(function(r) {
+          if (!r.ok) return r.json().then(function(d) { throw new Error(d.error); });
+          return r.json();
+        })
+        .then(function(data) {
+          logActivity('scan-ok', data.count + ' medias');
+          featuresEl.style.display = 'none';
+          showPlaylist(data);
+          if (data.truncated) {
+            var info = document.getElementById('playlist-selected-info');
+            info.innerHTML = '<span style="color:#f59e0b">' + data.totalFound + ' medias trouves, affichage limite a ' + data.count + '</span>';
+          }
+        })
+        .catch(function(err) {
+          lastError = err.message || "Erreur lors du scan";
+          logActivity('scan-error', lastError);
+          errorEl.textContent = lastError;
+          if (deepScanEnabled) {
+            var deepButton = document.createElement('button');
+            deepButton.type = 'button';
+            deepButton.textContent = '\uD83D\uDD25 Essayer le scan profond (plus lent, execute le JS de la page)';
+            deepButton.style.cssText = 'display:block;margin-top:0.5rem;padding:0.4rem 0.8rem;background:#7c4dff;color:#fff;border:none;border-radius:8px;font-size:0.8rem;font-weight:600;cursor:pointer';
+            deepButton.onclick = scanPageDeep;
+            errorEl.appendChild(deepButton);
+          }
+          errorEl.classList.add('visible');
+        })
+        .finally(function() {
+          btnScan.textContent = originalText;
+          btnScan.disabled = false;
+          btnAnalyze.disabled = false;
+        });
+    }
+
+    function scanPageDeep() {
+      var url = document.getElementById('url-input').value.trim();
+      if (!url) return;
+
+      var btnScan = document.getElementById('btn-scan');
+      var btnAnalyze = document.getElementById('btn-analyze');
+      var errorEl = document.getElementById('error-msg');
+      var previewEl = document.getElementById('preview');
+      var progressEl = document.getElementById('progress-section');
+      var featuresEl = document.getElementById('features');
+      var playlistEl = document.getElementById('playlist');
+
+      errorEl.classList.remove('visible');
+      errorEl.innerHTML = '';
+      previewEl.classList.remove('visible');
+      progressEl.classList.remove('visible');
+      playlistEl.classList.remove('visible');
+      lastError = null;
+
+      btnScan.textContent = 'Scan profond en cours (20-30s)...';
+      btnScan.disabled = true;
+      btnAnalyze.disabled = true;
+      logActivity('scan-deep', url);
+
+      fetch('/api/scan-deep', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url }),
+      })
+        .then(function(r) {
+          if (!r.ok) return r.json().then(function(d) { throw new Error(d.error); });
+          return r.json();
+        })
+        .then(function(data) {
+          logActivity('scan-deep-ok', data.count + ' medias');
+          featuresEl.style.display = 'none';
+          showPlaylist(data);
+          var info = document.getElementById('playlist-selected-info');
+          var extra = data.truncated ? ' / ' + data.totalFound + ' total' : '';
+          info.innerHTML = '<span style="color:#7c4dff">&#128293; Scan profond' + extra + '</span>';
+        })
+        .catch(function(err) {
+          lastError = err.message || "Erreur lors du scan profond";
+          logActivity('scan-deep-error', lastError);
+          errorEl.textContent = lastError;
+          errorEl.classList.add('visible');
+        })
+        .finally(function() {
+          btnScan.innerHTML = '&#128269; Scanner toute la page (extraire images + videos)';
+          btnScan.disabled = false;
+          btnAnalyze.disabled = false;
+        });
+    }
+
+    // ===== PLAYLIST (multi-media posts) =====
+    var playlistData = null;
+    var playlistUrl = null;
+    var playlistSelection = new Set();
+
+    function showPlaylist(data) {
+      playlistData = data;
+      playlistUrl = document.getElementById('url-input').value.trim();
+      playlistSelection = new Set();
+
+      var gridEl = document.getElementById('playlist-grid');
+      var countEl = document.getElementById('playlist-count');
+      var infoEl = document.getElementById('playlist-selected-info');
+      var btnDl = document.getElementById('btn-pl-download');
+      var progEl = document.getElementById('playlist-progress');
+      gridEl.innerHTML = '';
+      countEl.textContent = data.count;
+      infoEl.textContent = '';
+      btnDl.disabled = true;
+      progEl.classList.remove('visible');
+      progEl.innerHTML = '';
+
+      data.items.forEach(function(item, idx) {
+        var div = document.createElement('div');
+        div.className = 'playlist-item';
+        div.dataset.index = idx;
+        if (item.thumbnail) {
+          var image = document.createElement('img');
+          image.src = item.thumbnail;
+          image.alt = '';
+          image.loading = 'lazy';
+          image.referrerPolicy = 'no-referrer';
+          div.appendChild(image);
+        } else {
+          var placeholder = document.createElement('div');
+          placeholder.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#444;font-size:2rem';
+          placeholder.textContent = '?';
+          div.appendChild(placeholder);
+        }
+        var badge = document.createElement('div');
+        badge.className = item.type === 'video' ? 'badge video' : 'badge image';
+        badge.textContent = item.type === 'video' ? 'Video' : 'Photo';
+        div.appendChild(badge);
+        var check = document.createElement('div');
+        check.className = 'check';
+        check.textContent = '\u2713';
+        div.appendChild(check);
+        var number = document.createElement('div');
+        number.className = 'num';
+        number.textContent = String(idx + 1);
+        div.appendChild(number);
+        div.onclick = function() { togglePlaylistItem(idx); };
+        gridEl.appendChild(div);
+      });
+
+      document.getElementById('playlist').classList.add('visible');
+      logActivity('playlist-shown', data.count + ' items');
+    }
+
+    function togglePlaylistItem(idx) {
+      var el = document.querySelectorAll('.playlist-item')[idx];
+      if (playlistSelection.has(idx)) {
+        playlistSelection.delete(idx);
+        el.classList.remove('selected');
+      } else {
+        playlistSelection.add(idx);
+        el.classList.add('selected');
+      }
+      var info = document.getElementById('playlist-selected-info');
+      var btnDl = document.getElementById('btn-pl-download');
+      if (playlistSelection.size === 0) {
+        info.textContent = '';
+        btnDl.disabled = true;
+        btnDl.textContent = 'Telecharger la selection';
+      } else {
+        info.textContent = playlistSelection.size + ' selectionne(s)';
+        btnDl.disabled = false;
+        btnDl.textContent = 'Telecharger (' + playlistSelection.size + ')';
+      }
+    }
+
+    function downloadSelected() {
+      if (playlistSelection.size === 0) return;
+      var indices = Array.from(playlistSelection).sort(function(a,b){return a-b;});
+      runPlaylistDownloads(indices);
+    }
+
+    function downloadAllPlaylist() {
+      var indices = playlistData.items.map(function(_, i) { return i; });
+      runPlaylistDownloads(indices);
+    }
+
+    function runPlaylistDownloads(indices) {
+      var progEl = document.getElementById('playlist-progress');
+      progEl.classList.add('visible');
+      progEl.innerHTML = 'Preparation...';
+
+      // Disable action buttons during batch
+      var btnDl = document.getElementById('btn-pl-download');
+      var btnAll = document.querySelector('.btn-pl-all');
+      btnDl.disabled = true;
+      btnAll.disabled = true;
+
+      var total = indices.length;
+      var completed = 0;
+      var failed = 0;
+
+      function updateStatus(msg) {
+        progEl.innerHTML = '<strong>' + (completed + failed) + ' / ' + total + '</strong> &mdash; ' + msg +
+          (failed > 0 ? ' <span style="color:#ef5350">(' + failed + ' echec)</span>' : '');
+      }
+
+      function downloadNext(i) {
+        if (i >= total) {
+          progEl.innerHTML = '<strong style="color:#4caf50">Termine !</strong> ' + completed + '/' + total + ' telecharge(s)' +
+            (failed > 0 ? ', ' + failed + ' echec(s)' : '');
+          btnDl.disabled = playlistSelection.size === 0;
+          btnAll.disabled = false;
+          return;
+        }
+        var idx = indices[i];
+        var item = playlistData.items[idx];
+        updateStatus('Telechargement #' + (idx + 1) + ' (' + item.type + ')...');
+
+        var body = { url: playlistUrl, title: playlistData.title + ' - ' + (idx + 1) };
+
+        if (item.directUrls) {
+          // fxtwitter-style direct download
+          body.format = 'direct';
+          body.directUrl = item.directUrls['best'] || Object.values(item.directUrls)[0];
+        } else {
+          // yt-dlp playlist item
+          body.format = item.type === 'image' ? 'image' : 'video';
+          body.playlistIndex = item.index;
+          if (item.type === 'video') body.quality = 'best';
+        }
+
+        fetch('/api/download', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (!data.downloadId) throw new Error(data.error || 'no id');
+            return pollDownloadId(data.downloadId, function(msg) { updateStatus('#' + (idx + 1) + ': ' + msg); });
+          })
+          .then(function(downloadId) {
+            // Trigger save
+            var a = document.createElement('a');
+            a.href = '/api/file/' + downloadId;
+            a.download = '';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            // Laisse au navigateur le temps de terminer la lecture du fichier.
+            setTimeout(function() { navigator.sendBeacon('/api/job/' + downloadId + '/cleanup', ''); }, 60000);
+            completed++;
+          })
+          .catch(function(err) {
+            failed++;
+            logActivity('playlist-item-error', '#' + (idx + 1) + ' ' + (err.message || err));
+          })
+          .finally(function() {
+            // Small delay between downloads to let browser save dialog settle
+            setTimeout(function() { downloadNext(i + 1); }, 800);
+          });
+      }
+      downloadNext(0);
+    }
+
+    function pollDownloadId(id, onProgress) {
+      return new Promise(function(resolve, reject) {
+        var es = new EventSource('/api/progress/' + id);
+        var timeout = setTimeout(function() {
+          es.close();
+          reject(new Error('timeout'));
+        }, 180000); // 3 min max per item
+        es.onmessage = function(e) {
+          var data = JSON.parse(e.data);
+          if (data.status === 'done') {
+            clearTimeout(timeout);
+            es.close();
+            resolve(id);
+          } else if (data.status === 'error') {
+            clearTimeout(timeout);
+            es.close();
+            reject(new Error(data.error || 'error'));
+          } else if (onProgress && data.percent) {
+            onProgress(Math.round(data.percent) + '%');
+          }
+        };
+        es.onerror = function() {
+          clearTimeout(timeout);
+          es.close();
+          reject(new Error('stream error'));
+        };
+      });
+    }
+
+    function showPreview(data) {
+      var preview = document.getElementById('preview');
+      var thumb = document.getElementById('preview-thumb');
+      var source = document.getElementById('preview-source');
+      var title = document.getElementById('preview-title');
+      var uploader = document.getElementById('preview-uploader');
+      var duration = document.getElementById('preview-duration');
+      if (data.thumbnail) { thumb.src = data.thumbnail; thumb.style.display = ''; } else { thumb.style.display = 'none'; }
+      source.textContent = data.source;
+      source.className = 'preview-source source-' + data.source;
+      title.textContent = data.title;
+      uploader.textContent = data.uploader || '';
+      duration.textContent = data.duration ? formatDuration(data.duration) : '';
+      var tabVideo = document.getElementById('tab-video');
+      var tabAudio = document.getElementById('tab-audio');
+      var tabImage = document.getElementById('tab-image');
+      tabVideo.disabled = !data.hasVideo;
+      tabAudio.disabled = !data.hasAudio;
+      tabImage.disabled = data.type !== 'image';
+      if (data.type === 'image') { selectTab('image'); } else if (data.hasVideo) { selectTab('video'); } else { selectTab('audio'); }
+      var qualitySelect = document.getElementById('quality-select');
+      qualitySelect.innerHTML = '<option value="best">Meilleure qualite</option>';
+      if (data.qualities) {
+        data.qualities.forEach(function(q) {
+          var opt = document.createElement('option');
+          opt.value = q; opt.textContent = q + 'p';
+          qualitySelect.appendChild(opt);
+        });
+      }
+      preview.classList.add('visible');
+    }
+
+    function selectTab(format) {
+      currentFormat = format;
+      document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+      var activeTab = document.querySelector('.tab[data-format="' + format + '"]');
+      if (activeTab && !activeTab.disabled) activeTab.classList.add('active');
+      document.getElementById('options-video').classList.toggle('visible', format === 'video');
+      document.getElementById('options-audio').classList.toggle('visible', format === 'audio');
+      document.getElementById('options-image').classList.toggle('visible', format === 'image');
+    }
+
+    function startDownload() {
+      var url = document.getElementById('url-input').value.trim();
+      if (!url) return;
+      cleanupCurrentJob();
+      var btn = document.getElementById('btn-download');
+      btn.disabled = true; btn.textContent = 'Demarrage...';
+      var body = { url: url, format: currentFormat, title: currentData ? currentData.title : null };
+      if (currentData && currentData.directUrls) {
+        var quality = currentFormat === 'video' ? document.getElementById('quality-select').value : 'best';
+        body.format = 'direct';
+        body.directUrl = currentData.directUrls[quality] || currentData.directUrls['best'];
+      } else if (currentFormat === 'video') {
+        body.quality = document.getElementById('quality-select').value;
+      } else if (currentFormat === 'audio') {
+        body.audioFormat = document.getElementById('audio-format-select').value;
+      }
+      logActivity('download-start', currentFormat + ' | ' + (body.quality || body.audioFormat || 'direct'));
+      fetch('/api/download', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        .then(function(r) { return r.json().then(function(data) { if (!r.ok) throw new Error(data.error || 'Demarrage impossible'); return data; }); })
+        .then(function(data) {
+          if (!data.downloadId) throw new Error('Le serveur n’a pas cree de telechargement');
+          currentDownloadId = data.downloadId;
+          logActivity('download-id', data.downloadId);
+          showProgress();
+          listenProgress(data.downloadId);
+        })
+        .catch(function(error) {
+          lastError = error.message || 'Demarrage impossible';
+          document.getElementById('error-msg').textContent = lastError;
+          document.getElementById('error-msg').classList.add('visible');
+          btn.disabled = false;
+          btn.textContent = 'Telecharger';
+        });
+    }
+
+    function showProgress() {
+      document.getElementById('progress-section').classList.add('visible');
+      document.getElementById('btn-save').classList.remove('visible');
+      document.getElementById('btn-convert').classList.remove('visible');
+      document.getElementById('progress-fill').style.width = '0%';
+      document.getElementById('progress-percent').textContent = '0%';
+      document.getElementById('progress-status').textContent = 'Demarrage...';
+      document.getElementById('progress-speed').textContent = '';
+      document.getElementById('progress-eta').textContent = '';
+    }
+
+    function listenProgress(id) {
+      if (eventSource) eventSource.close();
+      eventSource = new EventSource('/api/progress/' + id);
+      var lastPercent = -1;
+      var stallTimer = null;
+      var stallSeconds = 0;
+
+      function resetStallTimer() {
+        stallSeconds = 0;
+        clearInterval(stallTimer);
+        stallTimer = setInterval(function() {
+          stallSeconds++;
+          if (stallSeconds >= 90) {
+            clearInterval(stallTimer);
+            logActivity('download-timeout', 'stuck at ' + lastPercent + '% for 90s');
+            lastError = 'Telechargement bloque (aucune progression depuis 90s). Le site source bloque peut-etre le telechargement.';
+            document.getElementById('progress-status').textContent = 'Erreur : ' + lastError;
+            document.getElementById('progress-fill').style.background = 'linear-gradient(90deg, #f44336, #ef5350)';
+            document.getElementById('btn-download').disabled = false;
+            document.getElementById('btn-download').textContent = 'Telecharger';
+            document.getElementById('bug-modal').classList.add('visible');
+            if (eventSource) eventSource.close();
+            // Log the timeout server-side too
+            fetch('/api/report-bug', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: document.getElementById('url-input').value, error: 'download-timeout: stuck at ' + lastPercent + '% for 90s', userAgent: navigator.userAgent })
+            });
+          }
+        }, 1000);
+      }
+      resetStallTimer();
+
+      eventSource.onmessage = function(e) {
+        var data = JSON.parse(e.data);
+        var fill = document.getElementById('progress-fill');
+        var percent = document.getElementById('progress-percent');
+        var status = document.getElementById('progress-status');
+
+        var newPercent = Math.round(data.percent || 0);
+        if (newPercent !== lastPercent) { lastPercent = newPercent; resetStallTimer(); }
+
+        fill.style.width = Math.min(data.percent || 0, 100) + '%';
+        percent.textContent = newPercent + '%';
+        if (data.status === 'downloading') { status.textContent = 'Telechargement...'; }
+        else if (data.status === 'processing') { status.textContent = 'Conversion...'; logActivity('download-processing', ''); }
+        else if (data.status === 'done') {
+          clearInterval(stallTimer);
+          logActivity('download-done', '100%');
+          status.textContent = 'Termine !'; fill.style.width = '100%';
+          fill.style.background = 'linear-gradient(90deg, #4caf50, #66bb6a)';
+          percent.textContent = '100%';
+          document.getElementById('btn-save').classList.add('visible');
+          // Show convert button with contextual label
+          var convertBtn = document.getElementById('btn-convert');
+          convertBtn.href = 'https://convert.purvanas.fr/?fileUrl=' + encodeURIComponent(window.location.origin + '/api/file/' + id);
+          if (currentFormat === 'video') {
+            convertBtn.innerHTML = '&#9889; Convertir en GIF, MP3, WebM...';
+          } else if (currentFormat === 'audio') {
+            convertBtn.innerHTML = '&#9889; Convertir en MP3, WAV, M4A...';
+          } else {
+            convertBtn.innerHTML = '&#9889; Convertir en PNG, JPG, WebP...';
+          }
+          convertBtn.classList.add('visible');
+          document.getElementById('btn-download').disabled = false;
+          document.getElementById('btn-download').textContent = 'Telecharger';
+          eventSource.close();
+        } else if (data.status === 'error') {
+          clearInterval(stallTimer);
+          lastError = data.error || 'Echec';
+          logActivity('download-error', lastError);
+          status.textContent = 'Erreur : ' + lastError;
+          fill.style.background = 'linear-gradient(90deg, #f44336, #ef5350)';
+          document.getElementById('btn-download').disabled = false;
+          document.getElementById('btn-download').textContent = 'Telecharger';
+          document.getElementById('bug-modal').classList.add('visible');
+          eventSource.close();
+        }
+        document.getElementById('progress-speed').textContent = data.speed || '';
+        document.getElementById('progress-eta').textContent = data.eta ? 'ETA ' + data.eta : '';
+      };
+    }
+
+    var isSaving = false;
+    function saveFile() {
+      if (!currentDownloadId) return;
+      isSaving = true;
+      var a = document.createElement('a');
+      a.href = '/api/file/' + currentDownloadId; a.download = '';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function() { isSaving = false; cleanupCurrentJob(); }, 5000);
+    }
+
+    function cleanupCurrentJob() {
+      if (currentDownloadId) { navigator.sendBeacon('/api/job/' + currentDownloadId + '/cleanup', ''); currentDownloadId = null; }
+      if (eventSource) { eventSource.close(); eventSource = null; }
+    }
+
+    window.addEventListener('beforeunload', function() { if (!isSaving) cleanupCurrentJob(); });
+
+    function formatDuration(s) {
+      if (!s) return '';
+      var h = Math.floor(s / 3600); var m = Math.floor((s % 3600) / 60); var sec = Math.floor(s % 60);
+      if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+      return m + ':' + String(sec).padStart(2, '0');
+    }
+
+    function pasteUrl() {
+      navigator.clipboard.readText().then(function(text) { document.getElementById('url-input').value = text.trim(); analyze(); }).catch(function() {});
+    }
+
+    var lastError = null;
+
+    function toggleBugModal() {
+      document.getElementById('bug-modal').classList.toggle('visible');
+    }
+
+    function submitBugReport() {
+      var desc = document.getElementById('bug-description').value.trim();
+      if (!desc) { document.getElementById('bug-description').placeholder = 'Veuillez decrire le probleme...'; return; }
+      var url = document.getElementById('url-input').value.trim();
+      fetch('/api/report-bug', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: url,
+          error: lastError || 'user-report',
+          comment: desc,
+          activityLog: activityLog,
+          userAgent: navigator.userAgent,
+          currentFormat: currentFormat,
+          downloadId: currentDownloadId
+        }),
+      }).then(function() {
+        document.getElementById('bug-modal').innerHTML = '<p style="color:#4caf50;text-align:center;padding:1rem;font-size:13px">Merci ! Votre rapport a ete envoye.</p>';
+        setTimeout(function() {
+          document.getElementById('bug-modal').classList.remove('visible');
+          document.getElementById('bug-modal').innerHTML = '<h3>&#128027; Signaler un probleme</h3><textarea id="bug-description" placeholder="Decrivez ce qui ne fonctionne pas..."></textarea><div class="bug-modal-info">Votre rapport inclura automatiquement un journal d\'activite anonyme.</div><button onclick="submitBugReport()">Envoyer le rapport</button>';
+        }, 2000);
+      }).catch(function() {});
+    }
+
+    document.getElementById('url-input').addEventListener('keydown', function(e) { if (e.key === 'Enter') analyze(); });
+  </script>
+  <!-- BOTTOM BAR -->
+  <div class="bottom-bar">
+    <button class="bottom-btn bottom-btn-bug" onclick="toggleBugModal()">&#128027; Signaler un bug</button>
+    <a class="bottom-btn bottom-btn-kofi" href="https://ko-fi.com/purvanas" target="_blank" rel="noopener">&#9749; Soutenir</a>
+  </div>
+
+  <!-- BUG REPORT MODAL -->
+  <div class="bug-modal" id="bug-modal">
+    <h3>&#128027; Signaler un probleme</h3>
+    <textarea id="bug-description" placeholder="Decrivez ce qui ne fonctionne pas..."></textarea>
+    <div class="bug-modal-info">Votre rapport inclura automatiquement un journal d'activite anonyme pour nous aider a reproduire le probleme.</div>
+    <button onclick="submitBugReport()">Envoyer le rapport</button>
+  </div>
+</body>
+<!-- LEGAL FOOTER -->
+<div id="legal-links" style="text-align:center;padding:1rem;font-size:.65rem">
+<a href="#" onclick="document.getElementById('legal-modal').style.display='flex';return false" style="color:#444;text-decoration:none">Mentions legales</a> · 
+<a href="#" onclick="document.getElementById('privacy-modal').style.display='flex';return false" style="color:#444;text-decoration:none">Politique de confidentialite</a> · 
+<a href="mailto:contact@purvanas.fr" style="color:#444;text-decoration:none">Contact</a>
+</div>
+
+<!-- LEGAL MODAL -->
+<div id="legal-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
+<div style="background:#141414;border:1px solid #2a2a2a;border-radius:12px;padding:24px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;color:#ccc;font-size:.8rem;line-height:1.6">
+<h2 style="font-size:1rem;margin-bottom:12px;color:#fff">Mentions legales</h2>
+<p><strong>Editeur :</strong> Particulier, a titre personnel.<br><strong>Contact :</strong> contact@purvanas.fr<br><strong>Hebergement :</strong> Serveur auto-heberge en France, derriere Cloudflare.</p>
+<h3 style="font-size:.85rem;margin:12px 0 6px;color:#ddd">Description du service</h3>
+<p>Ce site propose des outils web gratuits (telechargement, conversion, partage de fichiers, generation de QR codes, edition photo, outils PDF, suppression de fond). Aucun compte utilisateur n est requis.</p>
+<h3 style="font-size:.85rem;margin:12px 0 6px;color:#ddd">Responsabilite</h3>
+<p>Conformement a l article 6 de la LCEN (Loi n 2004-575 du 21 juin 2004), l hebergeur n est pas responsable des contenus traites par les utilisateurs. Tout contenu signale comme illicite sera traite promptement.</p>
+<h3 style="font-size:.85rem;margin:12px 0 6px;color:#ddd">Propriete intellectuelle</h3>
+<p>Les outils sont open source et disponibles sur GitHub. Les fichiers traites par les utilisateurs restent leur propriete.</p>
+<button onclick="this.parentElement.parentElement.style.display='none'" style="margin-top:16px;padding:8px 20px;background:#2a2a2a;color:#ccc;border:none;border-radius:8px;cursor:pointer;font-size:.8rem">Fermer</button>
+</div>
+</div>
+
+<!-- PRIVACY MODAL -->
+<div id="privacy-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
+<div style="background:#141414;border:1px solid #2a2a2a;border-radius:12px;padding:24px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;color:#ccc;font-size:.8rem;line-height:1.6">
+<h2 style="font-size:1rem;margin-bottom:12px;color:#fff">Politique de confidentialite</h2>
+<h3 style="font-size:.85rem;margin:12px 0 6px;color:#ddd">Donnees collectees</h3>
+<p>Ce site ne collecte aucune donnee personnelle directement. Aucun compte utilisateur, aucun formulaire d inscription, aucun cookie propre.</p>
+<h3 style="font-size:.85rem;margin:12px 0 6px;color:#ddd">Mesure d audience et publicite</h3>
+<p>Cette version ne charge aucun outil de mesure d audience ni regie publicitaire tierce.</p>
+<h3 style="font-size:.85rem;margin:12px 0 6px;color:#ddd">Fichiers traites</h3>
+<p>Les fichiers que vous uploadez (images, videos, PDF) sont traites temporairement puis supprimes automatiquement. Aucun fichier n est conserve de maniere permanente. Pour les outils cote client (QR Generator, PDF Tools), vos fichiers ne quittent jamais votre navigateur.</p>
+<h3 style="font-size:.85rem;margin:12px 0 6px;color:#ddd">Logs serveur</h3>
+<p>Les adresses IP sont enregistrees dans les logs du serveur web et conservees conformement au decret n 2011-219 du 25 fevrier 2011. Ces logs ne sont pas partages avec des tiers.</p>
+<h3 style="font-size:.85rem;margin:12px 0 6px;color:#ddd">Contact</h3>
+<p>Pour toute question relative a vos donnees : <a href="mailto:contact@purvanas.fr" style="color:#7c4dff">contact@purvanas.fr</a></p>
+<button onclick="this.parentElement.parentElement.style.display='none'" style="margin-top:16px;padding:8px 20px;background:#2a2a2a;color:#ccc;border:none;border-radius:8px;cursor:pointer;font-size:.8rem">Fermer</button>
+</div>
+</div>
+<script src="/i18n.js"></script>
+<script src="/en.js"></script>
+</html>
